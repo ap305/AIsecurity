@@ -1,0 +1,33 @@
+{
+  "scenario": "webbot",
+  "version": "v1",
+  "source": "对抗-0901.7z",
+  "stage": [
+    "attack",
+    "defense"
+  ],
+  "judge": {
+    "default": "mock",
+    "api": false
+  },
+  "scoreMapping": {
+    "attack": "Math.round(60*m.attack_win_rate_vs_nodefense + 40*m.attack_win_rate_vs_defense)",
+    "defense": "m.false_positive_gate_pass ? Math.round(100*m.defense_win_rate) : 0"
+  },
+  "files": [
+    "README.md",
+    "attack-backend.py",
+    "attack-blank.py",
+    "attack.py",
+    "dataset.py",
+    "defense-backend.py",
+    "defense-blank.py",
+    "defense.py",
+    "requirements.txt",
+    "results",
+    "run_attack.sh",
+    "run_defense.sh",
+    "test.py"
+  ],
+  "ready": true
+}

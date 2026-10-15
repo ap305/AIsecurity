@@ -1,0 +1,100 @@
+{
+  "status": "public_analysis_not_a_publication_self_test",
+  "questionId": "PATCH-AD",
+  "purpose": "Public-only target-scope comparison; no production grading change",
+  "seed": 42,
+  "trainingSamples": 120,
+  "validationImages": 30,
+  "eligibleTargets": 62,
+  "thresholds": {
+    "attack_gain": 0.4,
+    "hide_rate": 0.5,
+    "comparison": "greater_than_or_equal"
+  },
+  "sourceFiles": {
+    "attack.py": "8b1f6c11ac521c4b3b1ce155ffa68f90acc015c9c47c91c079cc483eb04aae09",
+    "dataset.py": "d9902fbfe694473c0e293283ca3a0ea397c43e2016dc47c2145ed7e4c806b983",
+    "test.py": "50dd1360b907220db027faad7b35054edbca77c8e71fa9745561ded25ce586e4"
+  },
+  "publicData": {
+    "sha256": "895732573a91da3bfe985a91d3515c3c37d3d08384abaa605533cb4da68031da",
+    "arrays": {
+      "images": {
+        "dtype": "uint8",
+        "shape": [
+          150,
+          128,
+          128,
+          3
+        ],
+        "sha256": "5fd1f8ee9abb019e5959d0368d0aa43827dd99b8b339b34abdaae057715ae095"
+      },
+      "boxes": {
+        "dtype": "float32",
+        "shape": [
+          150,
+          4,
+          4
+        ],
+        "sha256": "4ec0a499c3c613b203171296c7f4e6998bd742e479572c82b66a0d5ff6d177e1"
+      },
+      "cids": {
+        "dtype": "int64",
+        "shape": [
+          150,
+          4
+        ],
+        "sha256": "b108a74e522a9cde9f86ce621fec55226cac001c25c3426d7d6edc845d6b11bd"
+      },
+      "counts": {
+        "dtype": "int64",
+        "shape": [
+          150
+        ],
+        "sha256": "350af5021ea964d0b4383d2687972579d24ed35e4e7d2959c8829dd052151eae"
+      }
+    }
+  },
+  "publicWeightsSha256": "d4a551c55ba00e0499de7a32ac14fb34e089d914f321cb8a206dcca471c3e4c6",
+  "trainedPatchFloat32BytesSha256": "be2ce4f7f3005af1e560ae4ff73bf169a7a251522614247326d907177fe25925",
+  "runtime": {
+    "imageId": "sha256:bb3ee30c5b38c6974260387d2f0ba4de6b89c9d3954cae420ad346ea81853e4c",
+    "torch": "2.5.1+cpu",
+    "numpy": "1.26.4",
+    "torchvision": "0.20.1+cpu",
+    "torchThreads": 2
+  },
+  "scopes": {
+    "unchanged_original": {
+      "targets": 62,
+      "adv_hits": 31,
+      "occlusion_hits": 37,
+      "hide_rate": 0.5,
+      "hide_rate_occ": 0.4032258064516129,
+      "attack_gain": 0.16216215944485032,
+      "qualification_margin": -0.2378378405551497,
+      "qualified": false
+    },
+    "only_actually_patched_targets": {
+      "targets": 30,
+      "adv_hits": 0,
+      "occlusion_hits": 5,
+      "hide_rate": 1.0,
+      "hide_rate_occ": 0.8333333333333334,
+      "attack_gain": 0.9999999400000036,
+      "qualification_margin": 0.5,
+      "qualified": true
+    },
+    "each_eligible_independent": {
+      "targets": 62,
+      "adv_hits": 0,
+      "occlusion_hits": 9,
+      "hide_rate": 1.0,
+      "hide_rate_occ": 0.8548387096774194,
+      "attack_gain": 0.9999999311111158,
+      "qualification_margin": 0.5,
+      "qualified": true
+    }
+  },
+  "interpretation": "The official patch hides every actually patched validation target. Untouched targets remain in the original denominator. This does not prove the original threshold mathematically impossible."
+}

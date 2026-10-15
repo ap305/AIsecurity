@@ -1,0 +1,286 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Question {
+  id             String   @id
+  moduleCode     String
+  number         Int
+  title          String
+  content        String
+  answerTemplate String?
+  type           String
+  difficulty     String
+  category       String
+  status         String   @default("published")
+  solution       String?
+  testConfig     String?
+  githubRepo     String?
+  githubBranch   String?
+  autoBranch     Boolean  @default(true)
+  branchPrefix   String?
+  uploadMinScoreAttack   Int?
+  uploadMinScoreDefense  Int?
+  judgeMode      String   @default("legacy")
+  judgeVersion   String?
+  revision       Int      @default(1)
+  definition     String   @default("{}")
+  scenarioId     String?
+  role           String?
+  evaluationVersion String @default("v1")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  submissions Submission[]
+  testCases   TestCase[]
+
+  @@index([moduleCode])
+  @@index([category])
+  @@index([type])
+}
+
+model Submission {
+  id         String   @id @default(uuid())
+  questionId String
+  userId     String
+  code       String
+  filePath   String?
+  questionVersion Int @default(1)
+  category   String @default("basic")
+  role       String?
+  scenarioId String?
+  evaluationVersion String @default("v1")
+  configSnapshot String @default("{}")
+  materialHash String?
+  idempotencyKey String?
+  status     String   @default("pending")
+  score      Float?
+  result     String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  question Question @relation(fields: [questionId], references: [id])
+
+  @@index([questionId])
+  @@index([userId])
+  @@unique([userId, idempotencyKey])
+}
+
+model TestCase {
+  id         String   @id @default(uuid())
+  questionId String
+  name       String
+  type       String
+  config     String
+  createdAt  DateTime @default(now())
+
+  question Question @relation(fields: [questionId], references: [id])
+
+  @@index([questionId])
+}
+
+model UserScore {
+  userId         String   @id
+  displayName    String
+  totalScore     Float    @default(0)
+  tier           String   @default("bronze")
+  matchWins      Int      @default(0)
+  tasksCompleted Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model User {
+  id          String   @id @default(uuid())
+  username    String   @unique
+  password    String
+  displayName String
+  school      String   @default("")
+  studentId   String?
+  phone       String?
+  phoneVerified Boolean @default(false)
+  role        String   @default("student")
+  tier        String   @default("bronze")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model QuestionRevision {
+  id String @id @default(uuid())
+  questionId String
+  revision Int
+  snapshot String
+  createdAt DateTime @default(now())
+  @@unique([questionId, revision])
+}
+
+model BasicScore {
+  id String @id @default(uuid())
+  userId String
+  questionId String
+  questionVersion Int
+  score Float
+  submissionId String
+  scoreReachedAt DateTime @default(now())
+  @@unique([userId, questionId])
+  @@index([questionId])
+}
+
+model BasicTotal {
+  userId String @id
+  totalScore Float @default(0)
+  tasksCompleted Int @default(0)
+  scoreReachedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([totalScore, scoreReachedAt])
+}
+
+model EvaluationTask {
+  id String @id @default(uuid())
+  submissionId String @unique
+  state String @default("queued")
+  attempts Int @default(0)
+  error String?
+  cleanupStatus String?
+  lockedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([state, createdAt])
+}
+
+model ApiPool {
+  id String @id @default(uuid())
+  name String
+  kind String
+  model String
+  modelVersion String
+  baseUrl String
+  credentialEnv String?
+  parameters String @default("{}")
+  enabled Boolean @default(false)
+  isDefault Boolean @default(false)
+  revision Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ApiPoolRevision {
+  id String @id @default(uuid())
+  poolId String
+  revision Int
+  snapshot String
+  createdAt DateTime @default(now())
+  @@unique([poolId, revision])
+}
+
+model TeacherLease {
+  id String @id @default(uuid())
+  userId String
+  questionId String
+  questionVersion Int
+  poolSnapshot String
+  state String @default("creating")
+  startsAt DateTime?
+  expiresAt DateTime?
+  nonce String
+  calls Int @default(0)
+  maxCalls Int
+  reason String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([userId, questionId])
+}
+
+model AuditEvent {
+  id String @id @default(uuid())
+  actorId String
+  action String
+  targetId String
+  detail String
+  createdAt DateTime @default(now())
+  @@index([targetId, createdAt])
+}
+// Scalar references preserve legacy audit records without cascade deletion.
+model ArenaPool {
+  id                String   @id @default(uuid())
+  scenarioId        String
+  evaluationVersion String
+  revision          Int      @default(0)
+  updatedAt         DateTime @updatedAt
+
+  @@unique([scenarioId, evaluationVersion])
+}
+
+model ArenaAlgorithm {
+  id                String   @id @default(uuid())
+  submissionId      String   @unique
+  userId            String
+  questionId        String
+  scenarioId        String
+  role              String
+  evaluationVersion String
+  status            String   @default("candidate")
+  baselineResult    String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([scenarioId, evaluationVersion, role, status])
+}
+
+model ArenaSlot {
+  id                String   @id @default(uuid())
+  userId            String
+  scenarioId        String
+  role              String
+  evaluationVersion String
+  algorithmId       String
+  updatedAt         DateTime @updatedAt
+
+  @@unique([userId, scenarioId, role, evaluationVersion])
+  @@index([scenarioId, evaluationVersion, role])
+}
+
+model ArenaEvaluation {
+  id                String   @id @default(uuid())
+  submissionId      String
+  algorithmId       String
+  scenarioId        String
+  role              String
+  evaluationVersion String
+  kind              String
+  status            String   @default("queued")
+  snapshotRevision  Int?
+  opponentsSnapshot String?
+  result            String?
+  error             String?
+  attempts          Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([algorithmId, kind, status])
+}
+
+model ArenaScore {
+  id                String   @id @default(uuid())
+  algorithmId       String   @unique
+  userId            String
+  questionId        String
+  scenarioId        String
+  role              String
+  evaluationVersion String
+  score             Float
+  successCount      Int
+  opponentCount     Int
+  snapshotRevision  Int
+  snapshotId        String
+  achievedAt        DateTime
+  updatedAt         DateTime @updatedAt
+
+  @@index([questionId, score, achievedAt])
+}

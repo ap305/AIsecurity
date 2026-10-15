@@ -1,0 +1,43 @@
+{
+  "scenario": "webbot",
+  "version": "v2",
+  "source": "对抗-0901.7z (promoted v1->v2, code identical)",
+  "stage": [
+    "attack",
+    "defense"
+  ],
+  "judge": {
+    "default": "api",
+    "api": true
+  },
+  "scoreMapping": {
+    "attack": "Math.round(60*m.attack_win_rate_vs_nodefense + 40*m.attack_win_rate_vs_defense)",
+    "defense": "m.false_positive_gate_pass ? Math.round(100*m.defense_win_rate) : 0"
+  },
+  "files": [
+    "README.md",
+    "attack-backend.py",
+    "attack-blank.py",
+    "attack.py",
+    "dataset.py",
+    "defense-backend.py",
+    "defense-blank.py",
+    "defense.py",
+    "requirements.txt",
+    "results",
+    "run_attack.sh",
+    "run_defense.sh",
+    "test.py"
+  ],
+  "ready": true,
+  "switchedAt": "2026-09-16T14:10:00",
+  "timeoutMs": {
+    "attack": 1800000,
+    "defense": 3600000
+  },
+  "apiMatches": 3,
+  "forcedReads": [
+    "open_page"
+  ],
+  "notes": "apiMatches 4->3、防御超时 45->60 分钟：回归实测冷缓存下防御需 1684s（含 8 条基线任务），余量偏小。"
+}

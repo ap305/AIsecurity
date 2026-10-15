@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "protocol": "platform-rpc-v1",
+  "name": "数组求和算法教学样例",
+  "image": "python:3.12-slim",
+  "entrypoint": "main.py",
+  "phases": ["basic"],
+  "network": "none",
+  "resources": { "cpus": 1, "memoryMb": 128, "pids": 32, "timeoutMs": 10000, "tmpMb": 16 },
+  "materials": { "requiresWeights": false, "maxCodeBytes": 65536, "maxWeightBytes": 1048576 }
+}

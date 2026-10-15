@@ -1,0 +1,228 @@
+.question-hall {
+  max-width: 1440px;
+}
+.hall-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: center;
+  margin-bottom: 24px;
+}
+.hall-eyebrow {
+  color: var(--brand-cyan);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  margin-bottom: 8px;
+}
+.hall-heading p {
+  max-width: 740px;
+  margin-bottom: 0;
+}
+.hall-progress {
+  display: flex;
+  gap: 28px;
+  margin: 0;
+  flex-shrink: 0;
+}
+.hall-progress div {
+  min-width: 60px;
+}
+.hall-progress dt {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.hall-progress dd {
+  margin: 6px 0 0;
+  font-size: 25px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.hall-scenarios {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-bottom: 20px;
+}
+.hall-scenarios button {
+  border: 1px solid var(--border-color);
+  border-radius: 18px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  padding: 7px 13px;
+  cursor: pointer;
+}
+.hall-scenarios button.selected {
+  border-color: var(--brand-cyan);
+  color: var(--brand-cyan);
+  background: var(--brand-cyan-dim);
+}
+.hall-controls {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 18px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+}
+.hall-filter,
+.hall-search {
+  display: grid;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.hall-filter {
+  flex: 1 1 115px;
+}
+.hall-search {
+  flex: 3 1 260px;
+}
+.hall-filter .prd-input,
+.hall-search .prd-input {
+  width: 100%;
+  min-width: 0;
+}
+.hall-table-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 0 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  gap: 12px;
+}
+.hall-table-heading select {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  color: var(--text-primary);
+  padding: 6px;
+}
+.hall-text-button {
+  border: none;
+  background: transparent;
+  color: var(--brand-cyan);
+  cursor: pointer;
+  margin-left: 12px;
+}
+.hall-table-panel {
+  padding: 0;
+}
+.hall-table th {
+  white-space: nowrap;
+}
+.hall-table td {
+  padding-top: 18px;
+  padding-bottom: 18px;
+}
+.hall-question-link {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  text-decoration: none;
+}
+.hall-question-link strong {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.hall-question-link:hover strong {
+  color: var(--brand-cyan);
+}
+.hall-question-number {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-family: monospace;
+}
+.hall-question-meta {
+  color: var(--text-secondary);
+  font-size: 11px;
+  margin-top: 6px;
+  line-height: 1.5;
+  font-weight: normal;
+}
+.hall-state,
+.hall-role,
+.hall-difficulty {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.hall-state {
+  color: var(--text-secondary);
+}
+.hall-state-scored,
+.hall-difficulty-L1 {
+  color: #47c79b;
+}
+.hall-state-running,
+.hall-role-defense {
+  color: var(--brand-cyan);
+}
+.hall-state-error,
+.hall-role-attack,
+.hall-difficulty-L3 {
+  color: #ed8b91;
+}
+.hall-difficulty-L2 {
+  color: #dfb86c;
+}
+.hall-score {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.hall-empty {
+  text-align: center;
+  padding: 44px 18px;
+}
+.hall-empty p {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.hall-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: center;
+  margin-top: 18px;
+}
+.hall-footer nav {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.question-hall button:focus-visible,
+.question-hall a:focus-visible {
+  outline: 2px solid var(--brand-cyan);
+  outline-offset: 3px;
+}
+@media (max-width: 1100px) {
+  .hall-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .hall-progress {
+    gap: 36px;
+  }
+  .hall-question-link {
+    flex-direction: column;
+    gap: 3px;
+  }
+}
+@media (max-width: 700px) {
+  .hall-controls {
+    padding: 12px;
+  }
+  .hall-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .hall-footer nav {
+    justify-content: center;
+  }
+  .hall-table {
+    min-width: 620px;
+  }
+}

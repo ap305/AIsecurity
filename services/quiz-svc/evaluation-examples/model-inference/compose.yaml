@@ -1,0 +1,4 @@
+services:
+  evaluator:
+    image: python:3.12-slim
+    command: [python, /package/main.py]

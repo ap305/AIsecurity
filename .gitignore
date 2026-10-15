@@ -1,0 +1,67 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Docker
+docker-compose.override.yml
+
+# Misc
+*.tgz
+coverage/
+
+# Build artifacts
+apps/web/tsconfig.tsbuildinfo
+apps/web/tsconfig.node.tsbuildinfo
+apps/web/public/monaco-editor/
+
+# Judge assets (large data files - keep scripts, ignore data)
+services/quiz-svc/judge-assets/lenet/mnist_huggingface/
+services/quiz-svc/judge-assets/aug-mnist/mnist_huggingface/
+services/quiz-svc/judge-assets/cnn-compare/mnist_huggingface/
+services/quiz-svc/judge-assets/pytb-flow/mnist_huggingface/
+services/quiz-svc/uploads/
+services/quiz-svc/judge-assets/_logs/
+
+# Prisma generated client (regenerated on build)
+node_modules/.pnpm/@prisma+client@*/node_modules/.prisma/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Runtime admin config (contains secrets)
+services/quiz-svc/llm-config.json
+services/quiz-svc/github-archive-config.json
+services/quiz-svc/auth-secret.json
+services/quiz-svc/judge-queue-config.json
+
+# PRD v1.1 local test and evaluation runtime artifacts
+.test-artifacts/
+services/quiz-svc/evaluation-packages/
+services/quiz-svc/evaluation-runs/
+services/quiz-svc/evaluation-self-tests/

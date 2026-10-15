@@ -1,0 +1,10 @@
+ARG NODE_IMAGE=docker.m.daocloud.io/library/node:24-bookworm-slim
+FROM ${NODE_IMAGE}
+
+# Prisma needs OpenSSL; Python runs the process-level RPC regression tests.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openssl python3 ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm install --global pnpm@11.25.0
+
+WORKDIR /app/services/quiz-svc

@@ -1,0 +1,4 @@
+{
+  "DEEPFAKE-IMG": "deepfake_image_attack.py",
+  "MNIST-POISON": "mnist_poison_attack.py"
+}

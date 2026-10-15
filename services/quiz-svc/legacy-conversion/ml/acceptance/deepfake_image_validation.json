@@ -1,0 +1,26 @@
+{
+  "questionId": "DEEPFAKE-IMG",
+  "purpose": "Independent baseline acceptance example; official calibration reference remains unchanged",
+  "data": "Original managed/deepfake_image/v2/code/data/train.npz only",
+  "trainingDataSha256": "102a7c3389ff3618cf24f338c3af7030c108283e3b02b90cfde3c3e8ea4e3526",
+  "officialAttackSourceSha256": "966d3ba8666609a627442fe57cf14ea65dd86d8351b644988b01f77dbc97c4df",
+  "samples": 96,
+  "selection": "All fake-class training images; no hidden test access for strategy development",
+  "seed": 42,
+  "strategy": "Fixed 50% original image + 50% official JPEG quality85 result, round to uint8",
+  "candidatesEvaluated": 1,
+  "validation": {
+    "valid_rate": 1.0,
+    "mean_ssim": 0.9713525408878348,
+    "mean_psnr": 43.692658766886204,
+    "required_valid_rate": 0.8,
+    "required_mean_ssim": 0.92
+  },
+  "status": "Passes original hard qualification on public training samples; server hidden acceptance still required",
+  "runtime": {
+    "numpy": "2.5.4",
+    "scipy": "1.18.1",
+    "scikit-learn": "1.9.1",
+    "authoritativeCalibration": false
+  }
+}

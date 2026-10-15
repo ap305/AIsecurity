@@ -1,0 +1,449 @@
+{
+  "schemaVersion": 1,
+  "scope": "Original public defense_train 160 and defense_val 60 only; no hidden_test examples or labels evaluated.",
+  "image": "sha256:bb3ee30c5b38c6974260387d2f0ba4de6b89c9d3954cae420ad346ea81853e4c",
+  "environment": {
+    "python": "3.12.13",
+    "torch": "2.5.1+cpu",
+    "torchvision": "0.20.1+cpu",
+    "numpy": "1.26.4"
+  },
+  "training": {
+    "model": "original pretrained ResNet18Classifier",
+    "seed": 42,
+    "renderSeed": 49,
+    "epochs": 8,
+    "batchSize": 32,
+    "inputSize": 224,
+    "learningRate": 0.001,
+    "weightDecay": 0.0001
+  },
+  "sourceHashes": {
+    "attack.py": "8b1f6c11ac521c4b3b1ce155ffa68f90acc015c9c47c91c079cc483eb04aae09",
+    "defense.py": "e4dee4f6ae73121e09ed49660b1d724bb3b23a19386bc8bbd1da8ad1bc3b508b",
+    "dataset.py": "d9902fbfe694473c0e293283ca3a0ea397c43e2016dc47c2145ed7e4c806b983",
+    "test.py": "50dd1360b907220db027faad7b35054edbca77c8e71fa9745561ded25ce586e4"
+  },
+  "referenceCodeSha256": "79e64ed3b9ff34acb71eb6cefe4c9ff5abf7b7a42abbfc56c82e1046f05648f5",
+  "auditScriptHashes": {
+    "patch-full-determinism-audit.py": "4043bad3f59a018b28d6bcec74061070bd9312cc6a7642932a9f45ae032bad29",
+    "patch-profile-audit.py": "65a7b9aa27473fffc867b766be2c2245d0860eda03253866b8e2ade2691172b3",
+    "patch-full-single-audit.py": "198cc2a95e384b33e6380ef7fe0f47b8d12821bbfbb895f4a2eb41705af88c95",
+    "patch-rpc-profile-probe.py": "20bfc24680c8aff339243610d84ce4d4e553837900c2b62a7be82e349f60de18"
+  },
+  "publicInputHashes": {
+    "trainClean": "bd5adb2e4b09d148446f87729ddccde151111fbb5a5920cf91131a5b28c5e48e",
+    "trainPatched": "31c71caa1a10b29dc3bec8cf0495c863a91fe7b1312f393398be6c4e5229b907",
+    "baselinePatches": "e97262912e721b4b6912619f34d9a79d9d3ceab787c629323e788243833d7c1a",
+    "valClean": "78677331e859d628ddc5cc048303b0d508523327d596ad33acb6b47ec551d27a",
+    "valPatched": "b1f5ccedb84f419ecaa7b25163bd091c157c98fdc47704b6f05094db5c6674c7"
+  },
+  "findings": {
+    "earliestDivergence": "After the first backward/update; first logits, initialization, RNG and all eight sampler orders match.",
+    "originalPublicFpr": [
+      0.05,
+      0.1
+    ],
+    "originalPublicTpr": [
+      1.0,
+      1.0
+    ],
+    "flagsOnlyStillDiverges": true,
+    "singleThreadThreeStepsBitwiseEqual": true,
+    "singleThreadEightEpochsAllRecordsBitwiseEqual": true,
+    "newProfilePublicFpr": 0.0,
+    "newProfilePublicTpr": 0.9333333333333333
+  },
+  "executionProfile": {
+    "id": "torch-cpu-single-thread-deterministic-v1",
+    "intraOpThreads": 1,
+    "interOpThreads": 1,
+    "deterministicAlgorithms": true,
+    "mkldnnDeterministic": true,
+    "mkldnnEnabled": true
+  },
+  "rpcProbe": {
+    "productionWorkerAndClient": true,
+    "configuredOnlyByBootstrapDuringConstruct": true,
+    "calls": [
+      {
+        "operation": "construct",
+        "nativeThreadId": 9,
+        "threadsBefore": 1,
+        "threadsAfterTensorOperation": 1,
+        "interOpThreads": 1,
+        "deterministicAlgorithms": true,
+        "mkldnnDeterministic": true
+      },
+      {
+        "operation": "fit",
+        "nativeThreadId": 81,
+        "threadsBefore": 1,
+        "threadsAfterTensorOperation": 1,
+        "interOpThreads": 1,
+        "deterministicAlgorithms": true,
+        "mkldnnDeterministic": true
+      },
+      {
+        "operation": "predict",
+        "nativeThreadId": 83,
+        "threadsBefore": 1,
+        "threadsAfterTensorOperation": 1,
+        "interOpThreads": 1,
+        "deterministicAlgorithms": true,
+        "mkldnnDeterministic": true
+      }
+    ]
+  },
+  "limits": [
+    "Validated on the fixed image and current server CPU; no cross-hardware bitwise guarantee.",
+    "Full eight-epoch runs configured the profile at process startup and emulated separate serialized construct/fit/predict threads; independent real RPC probe verified the bootstrap-only placement propagates to later native threads.",
+    "New package digest/evaluation version still requires fresh platform baseline and opponent self-tests before publication."
+  ],
+  "runs": [
+    {
+      "name": "patch-full-determinism-1",
+      "image": "sha256:bb3ee30c5b38c6974260387d2f0ba4de6b89c9d3954cae420ad346ea81853e4c",
+      "startedAt": "2026-10-14T21:08:56.521036067Z",
+      "finishedAt": "2026-10-14T21:10:31.145959404Z",
+      "logSha256": "ca5d5bd0b1ca2ebd9f0bec57f6879ed52275b4c7a692e80800573901dbf520eb",
+      "stepCount": 40,
+      "stepsSha256": "22da48ac4c80a1208e5b44ece709f04ed3d9a3c9c839dc1253652c0cf3ff01a4",
+      "samplerSha256": "a5c46fa76452e6218f16e159b20c56128068a99036107ea2175edbffc4ac91b5",
+      "firstThreeSteps": [
+        {
+          "step": 1,
+          "loss": 0.7160065770149231,
+          "logits_hash": "e718d270a482e412bfad1c187719f1af984bf6f81c6d8d4b419d54f31b368f2d"
+        },
+        {
+          "step": 2,
+          "loss": 0.5029758810997009,
+          "logits_hash": "0930313bc3d207bc915f1ed002a5f7097085d0e5bc9101350a9fe62ecb745746"
+        },
+        {
+          "step": 3,
+          "loss": 0.45485547184944153,
+          "logits_hash": "7642317e5e4c44029695d96d6e7cb4a9f8b7ea9c63e5936cbeafc47ae9d71dad"
+        }
+      ],
+      "updates": [],
+      "train": "76516c62fe46c353ee95c200634298cab9ec9530d7edc9c245238c3bac0d00b5",
+      "val": "20ef911ea52b13d0281551fa460313e30ec3ad9d2969cfde53a3d44347bdb5af",
+      "threads": 2,
+      "initial_fc": "b5f6936c83de97b8880b9a1a18b758978074eeca6dc9a8a0542d3c60a07136ee",
+      "post_build_rng": "f4237685200bf0b326ac57fbc84ed5ce842d31c6b40bcdd85b169bf3f713082a",
+      "final_model": "4534035ec432e6c1cbd77edfd6d016681ae1f70cf9e46ca699ad0c1c10814d55",
+      "public_fpr": 0.05,
+      "public_tpr": 1.0,
+      "score_hash": "497758d5cefa94688dbff2da7faf7f20b9f4d7a25a36503af4485f01bf993505"
+    },
+    {
+      "name": "patch-full-determinism-2",
+      "image": "sha256:bb3ee30c5b38c6974260387d2f0ba4de6b89c9d3954cae420ad346ea81853e4c",
+      "startedAt": "2026-10-14T21:08:57.060865261Z",
+      "finishedAt": "2026-10-14T21:10:31.725630664Z",
+      "logSha256": "dd19675e55de8db0c9a5bf12e20c65716f4eb66f9c1358fac15ca57d71b63198",
+      "stepCount": 40,
+      "stepsSha256": "ea263c758618c3faa9cc1e5bdad8e795407446c6b98d82a8c9ef44e55dcb44ff",
+      "samplerSha256": "a5c46fa76452e6218f16e159b20c56128068a99036107ea2175edbffc4ac91b5",
+      "firstThreeSteps": [
+        {
+          "step": 1,
+          "loss": 0.7160065770149231,
+          "logits_hash": "e718d270a482e412bfad1c187719f1af984bf6f81c6d8d4b419d54f31b368f2d"
+        },
+        {
+          "step": 2,
+          "loss": 0.5029761791229248,
+          "logits_hash": "44b8686e2bd3abf42d44867c7fa64380b408ae9f4c6d563296e126861f4c0a6b"
+        },
+        {
+          "step": 3,
+          "loss": 0.45487380027770996,
+          "logits_hash": "ed4bc9771911332bb510b375edcc17a6bd8f88e8130ea8e1e03b45698e2df536"
+        }
+      ],
+      "updates": [],
+      "train": "76516c62fe46c353ee95c200634298cab9ec9530d7edc9c245238c3bac0d00b5",
+      "val": "20ef911ea52b13d0281551fa460313e30ec3ad9d2969cfde53a3d44347bdb5af",
+      "threads": 2,
+      "initial_fc": "b5f6936c83de97b8880b9a1a18b758978074eeca6dc9a8a0542d3c60a07136ee",
+      "post_build_rng": "f4237685200bf0b326ac57fbc84ed5ce842d31c6b40bcdd85b169bf3f713082a",
+      "final_model": "a6b78b6aa0efc6aacf8cdbc1ae1b39ab3dd403c16231e10c33f821255525a492",
+      "public_fpr": 0.1,
+      "public_tpr": 1.0,
+      "score_hash": "655bca040877af398b4a7987c8ff0a2b323c222995577ef344b0cbc3f6a0ef8d"
+    },
+    {
+      "name": "patch-profile-flags-1",
+      "image": "sha256:bb3ee30c5b38c6974260387d2f0ba4de6b89c9d3954cae420ad346ea81853e4c",
+      "startedAt": "2026-10-14T21:11:04.234269994Z",
+      "finishedAt": "2026-10-14T21:11:17.299153003Z",
+      "logSha256": "5f5028dd4443d5c89760debcbaed6236aa404ee60196465238b46de563deb724",
+      "stepCount": 3,
+      "stepsSha256": "74184452b79577c276e414e165b7aed922e1690ad5d6c51b66d7bfafd5f5ce85",
+      "samplerSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "firstThreeSteps": [
+        {
+          "step": 1,
+          "loss": 0.7160065770149231,
+          "logits_hash": "e718d270a482e412bfad1c187719f1af984bf6f81c6d8d4b419d54f31b368f2d"
+        },
+        {
+          "step": 2,
+          "loss": 0.5029761791229248,
+          "logits_hash": "44b8686e2bd3abf42d44867c7fa64380b408ae9f4c6d563296e126861f4c0a6b"
+        },
+        {
+          "step": 3,
+          "loss": 0.45487380027770996,
+          "logits_hash": "ed4bc9771911332bb510b375edcc17a6bd8f88e8130ea8e1e03b45698e2df536"
+        }
+      ],
+      "updates": [
+        {
+          "updated_step": 1,
+          "parameters": "2813d8c48917bb1d8d5ff38a05a35798efd3858acfbb7deecbf74bb6807b050e"
+        },
+        {
+          "updated_step": 2,
+          "parameters": "07659bb2f0bd7bf01048c0e14a5f956a9623d7a679afe069cf14e0cfc0f22c63"
+        },
+        {
+          "updated_step": 3,
+          "parameters": "03437b061e1cc71900fe10d94aec7f355486830736c12dc8e0d0ce33e94fee92"
+        }
+      ],
+      "profile": "flags",
+      "threads": 2,
+      "interop": 64,
+      "train": "76516c62fe46c353ee95c200634298cab9ec9530d7edc9c245238c3bac0d00b5",
+      "val": "20ef911ea52b13d0281551fa460313e30ec3ad9d2969cfde53a3d44347bdb5af",
+      "initial_fc": "b5f6936c83de97b8880b9a1a18b758978074eeca6dc9a8a0542d3c60a07136ee",
+      "post_build_rng": "f4237685200bf0b326ac57fbc84ed5ce842d31c6b40bcdd85b169bf3f713082a",
+      "audit_complete": true
+    },
+    {
+      "name": "patch-profile-flags-2",
+      "image": "sha256:bb3ee30c5b38c6974260387d2f0ba4de6b89c9d3954cae420ad346ea81853e4c",
+      "startedAt": "2026-10-14T21:11:04.766215918Z",
+      "finishedAt": "2026-10-14T21:11:17.328498704Z",
+      "logSha256": "3ec7e4c23619abebedd8f3423eff71f792d0687d291d7dd4a1cd9a07f0df87e1",
+      "stepCount": 3,
+      "stepsSha256": "88dbb58c9d05c5a9f0d49e0b003393506290f3a3199603e536eb5d85cc8cfe0c",
+      "samplerSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "firstThreeSteps": [
+        {
+          "step": 1,
+          "loss": 0.7160065770149231,
+          "logits_hash": "e718d270a482e412bfad1c187719f1af984bf6f81c6d8d4b419d54f31b368f2d"
+        },
+        {
+          "step": 2,
+          "loss": 0.5029765963554382,
+          "logits_hash": "cc96dcde1fea536174a82488252afc198b88f3fa3d43cbcec007b27e22e4b133"
+        },
+        {
+          "step": 3,
+          "loss": 0.4548671543598175,
+          "logits_hash": "e88f030726d1b00ea1e01b61ff78804a76019b015f59511cf2b880a75ee595e8"
+        }
+      ],
+      "updates": [
+        {
+          "updated_step": 1,
+          "parameters": "b8ea5b845858cced08180f107b37f97c486c050d9f59225649ffccf85a2e05cb"
+        },
+        {
+          "updated_step": 2,
+          "parameters": "7feb1e3d0e6c85aa72ad6282801ee992457603fa32e641c1d04e516c751c834d"
+        },
+        {
+          "updated_step": 3,
+          "parameters": "45ee953e77918c5856d100377fd841a743c877a99ebdfbd293c0520852431a44"
+        }
+      ],
+      "profile": "flags",
+      "threads": 2,
+      "interop": 64,
+      "train": "76516c62fe46c353ee95c200634298cab9ec9530d7edc9c245238c3bac0d00b5",
+      "val": "20ef911ea52b13d0281551fa460313e30ec3ad9d2969cfde53a3d44347bdb5af",
+      "initial_fc": "b5f6936c83de97b8880b9a1a18b758978074eeca6dc9a8a0542d3c60a07136ee",
+      "post_build_rng": "f4237685200bf0b326ac57fbc84ed5ce842d31c6b40bcdd85b169bf3f713082a",
+      "audit_complete": true
+    },
+    {
+      "name": "patch-profile-single-1",
+      "image": "sha256:bb3ee30c5b38c6974260387d2f0ba4de6b89c9d3954cae420ad346ea81853e4c",
+      "startedAt": "2026-10-14T21:11:28.982976168Z",
+      "finishedAt": "2026-10-14T21:11:47.288486617Z",
+      "logSha256": "1c5fd057b66882541e48b256a418073287d0b83ac7196655fb4b8e17e9b4a783",
+      "stepCount": 3,
+      "stepsSha256": "8771bbc21812b5f2bc968c10e2dbce66034b437cfe4a98f3ca3459ddcc081733",
+      "samplerSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "firstThreeSteps": [
+        {
+          "step": 1,
+          "loss": 0.7160065770149231,
+          "logits_hash": "e718d270a482e412bfad1c187719f1af984bf6f81c6d8d4b419d54f31b368f2d"
+        },
+        {
+          "step": 2,
+          "loss": 0.5029786229133606,
+          "logits_hash": "20febe74e515ef4f2d73fdf198061bbae1f4b23393cb97ffc56507e526d0dd54"
+        },
+        {
+          "step": 3,
+          "loss": 0.4552385210990906,
+          "logits_hash": "5d05f147944f87c0eee86aac5de49ab1e018b1f9d996f6a82ccebd328e12197a"
+        }
+      ],
+      "updates": [
+        {
+          "updated_step": 1,
+          "parameters": "13b1944c21d18cd6ba4f457be5709fcd61ceb330407b24c37db7a35e35d2ec67"
+        },
+        {
+          "updated_step": 2,
+          "parameters": "a9d78f0bfdd050303ee30b2ac5f75c775690b37edc43230eb7317e27ff2c6bdc"
+        },
+        {
+          "updated_step": 3,
+          "parameters": "c26c43f36b1bdb0af27d44e412cc327539f71106e11b058e12a3efd61029dd1b"
+        }
+      ],
+      "profile": "single",
+      "threads": 1,
+      "interop": 1,
+      "train": "76516c62fe46c353ee95c200634298cab9ec9530d7edc9c245238c3bac0d00b5",
+      "val": "20ef911ea52b13d0281551fa460313e30ec3ad9d2969cfde53a3d44347bdb5af",
+      "initial_fc": "b5f6936c83de97b8880b9a1a18b758978074eeca6dc9a8a0542d3c60a07136ee",
+      "post_build_rng": "f4237685200bf0b326ac57fbc84ed5ce842d31c6b40bcdd85b169bf3f713082a",
+      "audit_complete": true
+    },
+    {
+      "name": "patch-profile-single-2",
+      "image": "sha256:bb3ee30c5b38c6974260387d2f0ba4de6b89c9d3954cae420ad346ea81853e4c",
+      "startedAt": "2026-10-14T21:11:29.497083097Z",
+      "finishedAt": "2026-10-14T21:11:47.987073141Z",
+      "logSha256": "1c5fd057b66882541e48b256a418073287d0b83ac7196655fb4b8e17e9b4a783",
+      "stepCount": 3,
+      "stepsSha256": "8771bbc21812b5f2bc968c10e2dbce66034b437cfe4a98f3ca3459ddcc081733",
+      "samplerSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "firstThreeSteps": [
+        {
+          "step": 1,
+          "loss": 0.7160065770149231,
+          "logits_hash": "e718d270a482e412bfad1c187719f1af984bf6f81c6d8d4b419d54f31b368f2d"
+        },
+        {
+          "step": 2,
+          "loss": 0.5029786229133606,
+          "logits_hash": "20febe74e515ef4f2d73fdf198061bbae1f4b23393cb97ffc56507e526d0dd54"
+        },
+        {
+          "step": 3,
+          "loss": 0.4552385210990906,
+          "logits_hash": "5d05f147944f87c0eee86aac5de49ab1e018b1f9d996f6a82ccebd328e12197a"
+        }
+      ],
+      "updates": [
+        {
+          "updated_step": 1,
+          "parameters": "13b1944c21d18cd6ba4f457be5709fcd61ceb330407b24c37db7a35e35d2ec67"
+        },
+        {
+          "updated_step": 2,
+          "parameters": "a9d78f0bfdd050303ee30b2ac5f75c775690b37edc43230eb7317e27ff2c6bdc"
+        },
+        {
+          "updated_step": 3,
+          "parameters": "c26c43f36b1bdb0af27d44e412cc327539f71106e11b058e12a3efd61029dd1b"
+        }
+      ],
+      "profile": "single",
+      "threads": 1,
+      "interop": 1,
+      "train": "76516c62fe46c353ee95c200634298cab9ec9530d7edc9c245238c3bac0d00b5",
+      "val": "20ef911ea52b13d0281551fa460313e30ec3ad9d2969cfde53a3d44347bdb5af",
+      "initial_fc": "b5f6936c83de97b8880b9a1a18b758978074eeca6dc9a8a0542d3c60a07136ee",
+      "post_build_rng": "f4237685200bf0b326ac57fbc84ed5ce842d31c6b40bcdd85b169bf3f713082a",
+      "audit_complete": true
+    },
+    {
+      "name": "patch-full-single-1",
+      "image": "sha256:bb3ee30c5b38c6974260387d2f0ba4de6b89c9d3954cae420ad346ea81853e4c",
+      "startedAt": "2026-10-14T21:12:40.229564664Z",
+      "finishedAt": "2026-10-14T21:15:46.857360107Z",
+      "logSha256": "be62e0c3618bb81509b7c60f67a5c7ffdc02a6d910f32bfd31884eab86d4e4c7",
+      "stepCount": 40,
+      "stepsSha256": "a179d3c6ba476b1bda2fbf844c1546181977dfaba9307171b39ddba1e5bd1741",
+      "samplerSha256": "a5c46fa76452e6218f16e159b20c56128068a99036107ea2175edbffc4ac91b5",
+      "firstThreeSteps": [
+        {
+          "step": 1,
+          "loss": 0.7160065770149231,
+          "logits_hash": "e718d270a482e412bfad1c187719f1af984bf6f81c6d8d4b419d54f31b368f2d"
+        },
+        {
+          "step": 2,
+          "loss": 0.5029786229133606,
+          "logits_hash": "20febe74e515ef4f2d73fdf198061bbae1f4b23393cb97ffc56507e526d0dd54"
+        },
+        {
+          "step": 3,
+          "loss": 0.4552385210990906,
+          "logits_hash": "5d05f147944f87c0eee86aac5de49ab1e018b1f9d996f6a82ccebd328e12197a"
+        }
+      ],
+      "updates": [],
+      "train": "76516c62fe46c353ee95c200634298cab9ec9530d7edc9c245238c3bac0d00b5",
+      "val": "20ef911ea52b13d0281551fa460313e30ec3ad9d2969cfde53a3d44347bdb5af",
+      "threads": 1,
+      "initial_fc": "b5f6936c83de97b8880b9a1a18b758978074eeca6dc9a8a0542d3c60a07136ee",
+      "post_build_rng": "f4237685200bf0b326ac57fbc84ed5ce842d31c6b40bcdd85b169bf3f713082a",
+      "final_model": "78a34e4aed3cfb2928ef47d1d5366e312a8a36f253e5e5428105e6924f32186c",
+      "public_fpr": 0.0,
+      "public_tpr": 0.9333333333333333,
+      "score_hash": "46ea8e90827b377fad3e8bea0a2d6a61bb0d2964540256ef8adb0d5ad1b28461"
+    },
+    {
+      "name": "patch-full-single-2",
+      "image": "sha256:bb3ee30c5b38c6974260387d2f0ba4de6b89c9d3954cae420ad346ea81853e4c",
+      "startedAt": "2026-10-14T21:12:40.813914119Z",
+      "finishedAt": "2026-10-14T21:15:46.121817616Z",
+      "logSha256": "be62e0c3618bb81509b7c60f67a5c7ffdc02a6d910f32bfd31884eab86d4e4c7",
+      "stepCount": 40,
+      "stepsSha256": "a179d3c6ba476b1bda2fbf844c1546181977dfaba9307171b39ddba1e5bd1741",
+      "samplerSha256": "a5c46fa76452e6218f16e159b20c56128068a99036107ea2175edbffc4ac91b5",
+      "firstThreeSteps": [
+        {
+          "step": 1,
+          "loss": 0.7160065770149231,
+          "logits_hash": "e718d270a482e412bfad1c187719f1af984bf6f81c6d8d4b419d54f31b368f2d"
+        },
+        {
+          "step": 2,
+          "loss": 0.5029786229133606,
+          "logits_hash": "20febe74e515ef4f2d73fdf198061bbae1f4b23393cb97ffc56507e526d0dd54"
+        },
+        {
+          "step": 3,
+          "loss": 0.4552385210990906,
+          "logits_hash": "5d05f147944f87c0eee86aac5de49ab1e018b1f9d996f6a82ccebd328e12197a"
+        }
+      ],
+      "updates": [],
+      "train": "76516c62fe46c353ee95c200634298cab9ec9530d7edc9c245238c3bac0d00b5",
+      "val": "20ef911ea52b13d0281551fa460313e30ec3ad9d2969cfde53a3d44347bdb5af",
+      "threads": 1,
+      "initial_fc": "b5f6936c83de97b8880b9a1a18b758978074eeca6dc9a8a0542d3c60a07136ee",
+      "post_build_rng": "f4237685200bf0b326ac57fbc84ed5ce842d31c6b40bcdd85b169bf3f713082a",
+      "final_model": "78a34e4aed3cfb2928ef47d1d5366e312a8a36f253e5e5428105e6924f32186c",
+      "public_fpr": 0.0,
+      "public_tpr": 0.9333333333333333,
+      "score_hash": "46ea8e90827b377fad3e8bea0a2d6a61bb0d2964540256ef8adb0d5ad1b28461"
+    }
+  ]
+}
