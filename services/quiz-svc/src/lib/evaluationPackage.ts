@@ -11,13 +11,22 @@ export const EVALUATION_PACKAGE_ROOT = path.resolve(
   process.env.EVALUATION_PACKAGE_ROOT || path.join(SERVICE_ROOT, 'evaluation-packages'),
 )
 export const EVALUATION_EXAMPLE_ROOT = path.join(SERVICE_ROOT, 'evaluation-examples')
-export const ARCHIVE_LIMITS = {
-  compressedBytes: 64 * 1024 * 1024,
-  expandedBytes: 512 * 1024 * 1024,
-  fileBytes: 128 * 1024 * 1024,
-  entries: 2000,
-  ratio: 200,
+export function evaluationArchiveLimits(profile = process.env.EVALUATION_ARCHIVE_PROFILE) {
+  if (profile && profile !== 'default' && profile !== 'course-v3')
+    throw new Error('EVALUATION_ARCHIVE_PROFILE must be default or course-v3')
+  // Curated course packages contain real COCO/BERT weights and self-test fixtures.
+  // This deployment setting only changes administrator package uploads; student
+  // submissions retain their separately enforced per-question material limits.
+  const largeCourse = profile === 'course-v3'
+  return {
+    compressedBytes: (largeCourse ? 640 : 64) * 1024 * 1024,
+    expandedBytes: (largeCourse ? 1536 : 512) * 1024 * 1024,
+    fileBytes: (largeCourse ? 512 : 128) * 1024 * 1024,
+    entries: 2000,
+    ratio: 200,
+  }
 }
+export const ARCHIVE_LIMITS = evaluationArchiveLimits()
 export type EvaluationPhase = 'basic' | 'baseline' | 'opponent'
 export interface EvaluationManifest {
   schemaVersion: 1

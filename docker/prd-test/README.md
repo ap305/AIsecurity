@@ -6,6 +6,8 @@
 
 部署用 `deployment.env` 包含 `PRD_RELEASE_DIR`、`PRD_STATE_DIR`、`PRD_NODE_IMAGE`、`PRD_POSTGRES_IMAGE`、`PRD_NGINX_IMAGE`、`PRD_DOCKER_BINARY`、`PRD_COMPOSE_PLUGIN` 和端口。真实密钥只写在服务器权限为0600的state配置文件，不得提交仓库或输出到部署日志。
 
+导入 v3 题包时，在 `api.env` 设置 `EVALUATION_ARCHIVE_PROFILE=course-v3`，并在 `deployment.env` 设置 `PRD_API_MEMORY_LIMIT=8g`，再检查服务器可用内存和实际导入峰值。默认2g不足以覆盖大型模型包的解压预算。导入/校准CLI也要使用同一profile。新nginx模板对管理员环境包上传允许650m请求，普通API保留520m；公网代理需独立同步对应限制，不能使用旧 `docker/nginx.conf` 的50m/4002配置。生产仍需固定评测镜像摘要，并完成两层 `nginx -t` 和真实大包上传验证。
+
 `database.env` 设置随机 `POSTGRES_PASSWORD`、独立 `POSTGRES_USER`/`POSTGRES_DB`；`api.env` 设置指向127.0.0.1:15432的新库 `DATABASE_URL` 和显式管理员初始化账号/随机密码。`auth-secret.json` 提前建立为有效随机secret对象，避免缺少bind源时Docker把它建成目录。旧管理界面使用的 `llm-config.json` 和 `github-archive-config.json` 也要提前建立，初始内容均为 `{"enabled":false}`。它们只服务此测试环境，不复用旧站密钥；新版API池保存在独立数据库中。将nginx模板里的 `__PRD_API_PORT__` 替换为新API端口，保存到 `state/nginx.conf`。
 
 提前创建独立 `state/uploads`、`state/resources`、`state/packages`、`state/workspaces` 目录；资源路由在服务启动时访问resources，上传/删除也需要写权限。需要教材文件时从已提交源代码复制到新resources目录；不要将旧站资源目录直接挂为可写。正式代码目录只读，运行数据均在state中。

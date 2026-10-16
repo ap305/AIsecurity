@@ -147,7 +147,7 @@ router.get('/admin/evaluation-packages', async (_req, res) => {
 })
 router.post('/admin/evaluation-packages', (req, res) => {
   upload.single('file')(req, res, async (error) => {
-    if (error) return badRequest(res, new PackageValidationError('请上传一个不超过64MB的ZIP环境包'))
+    if (error) return badRequest(res, new PackageValidationError(`请上传一个不超过${ARCHIVE_LIMITS.compressedBytes / 1024 / 1024}MB的ZIP环境包`))
     try {
       if (!req.file || !req.file.originalname.toLowerCase().endsWith('.zip'))
         throw new PackageValidationError('请上传ZIP环境包')

@@ -12,7 +12,23 @@ import {
   validateManifest,
   validateComposeDeclaration,
   EVALUATION_EXAMPLE_ROOT,
+  evaluationArchiveLimits,
 } from '../src/lib/evaluationPackage.js'
+
+test('large course package limits are an explicit bounded administrator deployment profile', () => {
+  const normal = evaluationArchiveLimits('default')
+  const course = evaluationArchiveLimits('course-v3')
+  const cocoBytes = 175_221_657
+  const bertBaseBytes = 109_485_316 * 4
+  assert.ok(cocoBytes > normal.fileBytes)
+  assert.ok(cocoBytes < course.fileBytes && bertBaseBytes < course.fileBytes)
+  assert.ok(course.compressedBytes <= 640 * 1024 ** 2)
+  assert.ok(course.expandedBytes <= 1536 * 1024 ** 2)
+  assert.equal(course.entries, normal.entries)
+  assert.equal(course.ratio, normal.ratio)
+  for (const bad of ['unlimited', 'COURSE-V3', 'course-v3 ', '0'])
+    assert.throws(() => evaluationArchiveLimits(bad), /EVALUATION_ARCHIVE_PROFILE/)
+})
 
 const manifest = {
   schemaVersion: 1,

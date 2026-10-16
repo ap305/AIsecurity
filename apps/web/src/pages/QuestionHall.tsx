@@ -2,8 +2,15 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { prdApi, statusLabel, type HallCategory, type QuestionRecord } from '../lib/prdApi'
-import { ARENA_TEACHING_SCENARIOS, resolveArenaScenario } from '../lib/arenaTeaching'
-import { filterHallQuestions, hallPage, questionAttemptState, questionKinds } from '../lib/hallFilters'
+import {
+  filterHallQuestions,
+  hallPage,
+  hallScenario,
+  hallScenarios,
+  questionAttemptState,
+  questionKinds,
+  questionModuleLabel,
+} from '../lib/hallFilters'
 import './QuestionHall.css'
 
 const difficulties: Record<string, string> = { L1: '入门', L2: '进阶', L3: '挑战' }
@@ -72,9 +79,7 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
   const { page, pages } = hallPage(params.get('page'), filtered.length, PAGE_SIZE)
   const visible = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
   const modules = [...new Set(questions.map((q) => q.moduleCode).filter(Boolean))].sort()
-  const scenarios = ARENA_TEACHING_SCENARIOS.filter((s) =>
-    questions.some((q) => resolveArenaScenario(q)?.id === s.id),
-  )
+  const scenarios = hallScenarios(questions)
   const groups = [...new Set(scenarios.map((s) => s.group))]
   const attempted = questions.filter((q) => questionAttemptState(q) !== 'not_submitted').length
   const scored = questions.filter((q) => q.myScore != null).length
@@ -166,7 +171,7 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
             {select('role', '角色', { attack: '攻击', defense: '防御' })}
           </>
         ) : (
-          select('module', '领域', Object.fromEntries(modules.map((m) => [m!, m!])))
+          select('module', '领域', Object.fromEntries(modules.map((m) => [m!, questionModuleLabel(m)])))
         )}
       </section>
       <div className="hall-table-heading">
@@ -216,7 +221,7 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
             <tbody>
               {visible.map((q) => {
                 const state = questionAttemptState(q)
-                const scenario = resolveArenaScenario(q)
+                const scenario = hallScenario(q)
                 return (
                   <tr key={q.id}>
                     <td>
@@ -237,7 +242,9 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
                         <strong>{q.title}</strong>
                       </Link>
                       <div className="hall-question-meta">
-                        {scenario ? `${scenario.group} · ${scenario.title}` : q.moduleCode || '基础练习'}
+                        {scenario
+                          ? `${scenario.group} · ${scenario.title}`
+                          : questionModuleLabel(q.moduleCode)}
                         {q.tags?.length ? ` · ${q.tags.join(' / ')}` : ''}
                       </div>
                     </td>

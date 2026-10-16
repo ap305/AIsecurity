@@ -42,7 +42,7 @@ services:
       - '${PRD_DOCKER_BINARY:?Set verified host Docker CLI path}:/usr/local/bin/docker:ro'
       - '${PRD_COMPOSE_PLUGIN:?Set verified host Compose plugin path}:/usr/local/lib/docker/cli-plugins/docker-compose:ro'
     restart: unless-stopped
-    mem_limit: 2g
+    mem_limit: ${PRD_API_MEMORY_LIMIT:-2g}
     cpus: 2
     depends_on:
       database:

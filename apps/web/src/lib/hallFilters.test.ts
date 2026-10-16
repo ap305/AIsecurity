@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { defaultDefinition, type QuestionRecord } from './prdApi'
-import { filterHallQuestions, hallPage, questionAttemptState } from './hallFilters'
+import { filterHallQuestions, hallPage, hallScenarios, questionAttemptState } from './hallFilters'
 
 function question(id: string, extra: Partial<QuestionRecord> = {}): QuestionRecord {
   return {
@@ -71,4 +71,37 @@ test('invalid and stale page positions stay inside the filtered result range', (
   for (const raw of [null, 'NaN', '-1', '1.5', '0', 'Infinity']) assert.equal(hallPage(raw, 21, 20).page, 1)
   assert.deepEqual(hallPage('999', 21, 20), { page: 2, pages: 2 })
   assert.deepEqual(hallPage('2', 0, 20), { page: 1, pages: 1 })
+})
+
+test('new course scenarios remain discoverable alongside legacy scenarios and filter both roles', () => {
+  const rows = ['attack', 'defense'].map((role) =>
+    question(`V3-261012-${role === 'attack' ? 'A' : 'D'}01`, {
+      category: 'adversarial',
+      moduleCode: 'AI_SECURITY_V3',
+      title: `标签翻转 · ${role === 'attack' ? '攻击' : '防御'}`,
+      definition: {
+        ...defaultDefinition(),
+        role: role as 'attack' | 'defense',
+        scenarioId: 'V3-261012-ML01',
+      },
+    }),
+  )
+  rows.push(
+    question('CHATOPS-AD-ATK', {
+      category: 'adversarial',
+      definition: { ...defaultDefinition(), role: 'attack' },
+    }),
+  )
+  assert.deepEqual(
+    hallScenarios(rows).map((s) => [s.id, s.title, s.group]),
+    [
+      ['V3-261012-ML01', '标签翻转', '模型安全'],
+      ['chatops', 'ChatOps 运维', 'Agent 攻防'],
+    ],
+  )
+  assert.equal(filterHallQuestions(rows, new URLSearchParams('scenario=V3-261012-ML01')).length, 2)
+  assert.deepEqual(
+    filterHallQuestions(rows, new URLSearchParams('group=模型安全&role=defense&q=模型安全')).map((q) => q.id),
+    ['V3-261012-D01'],
+  )
 })

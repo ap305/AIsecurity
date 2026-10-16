@@ -1,0 +1,13 @@
+numpy==1.26.4
+scipy==1.13.1
+scikit-learn==1.6.1
+joblib==1.4.2
+pandas==2.2.3
+pillow==10.4.0
+transformers==4.45.2
+safetensors==0.4.5
+gymnasium==1.0.0
+tensorboard==2.18.0
+matplotlib==3.9.2
+librosa==0.10.2.post1
+soundfile==0.12.1

@@ -1,0 +1,1296 @@
+{
+  "schemaVersion": 1,
+  "pairCount": 30,
+  "pairs": [
+    {
+      "pair": "01",
+      "title": "标签翻转攻击实验",
+      "family": "ml",
+      "attack": {
+        "id": "A01",
+        "entry": [
+          "attack"
+        ],
+        "weights": {
+          "required": true,
+          "kind": "state_dict",
+          "models": [
+            "default"
+          ],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D01",
+        "entry": [
+          "defend"
+        ],
+        "weights": {
+          "required": true,
+          "kind": "models",
+          "models": [
+            "warmup",
+            "defended"
+          ],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Use opponent defense filtering against submitted poisoned labels; uploaded clean/poison/defended model is frozen; never retrain.",
+      "adapter": "requires-pair-adapter",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "numpy/tensor-data",
+        "remote-object",
+        "capability-callback"
+      ]
+    },
+    {
+      "pair": "02",
+      "title": "大模型评分系统排序偏移",
+      "family": "api",
+      "attack": {
+        "id": "A02",
+        "entry": [
+          "attack"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D02",
+        "entry": [
+          "defend"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Actual submitted attack and opponent defense execute together on fixed samples. Replace both sides; never treat independent official-reference scores as a matchup.",
+      "adapter": "prompt_runtime.py",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "json-values",
+        "remote-object",
+        "capability-callback"
+      ],
+      "build": "build.py",
+      "requiresCalibration": true,
+      "poolKey": "V3-261012-API-02",
+      "defaultSamples": 20,
+      "metricSamples": "samples",
+      "trustedDynamicSystem": false,
+      "zeroReferencePolicy": "zero-only one-effective-sample floor; nonzero reference unchanged; operator freezes exact evidence"
+    },
+    {
+      "pair": "03",
+      "title": "大模型文本水印",
+      "family": "api",
+      "attack": {
+        "id": "A03",
+        "entry": [
+          "attack"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D03",
+        "entry": [
+          "WatermarkDefense",
+          "WatermarkDetector"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Actual submitted attack and opponent defense execute together on fixed samples. Replace both sides; never treat independent official-reference scores as a matchup.",
+      "adapter": "class_runtime.py",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "json-values",
+        "remote-object",
+        "capability-callback"
+      ],
+      "build": "build.py",
+      "requiresCalibration": true,
+      "poolKey": "V3-261012-API-03",
+      "defaultSamples": 40,
+      "metricSamples": "samples",
+      "trustedDynamicSystem": true,
+      "zeroReferencePolicy": "zero-only one-effective-sample floor; nonzero reference unchanged; operator freezes exact evidence",
+      "preparedAsset": {
+        "path": "watermark/backend/weights/bigram.pt",
+        "sha256": "c3e368cc510ffc00f85202abfd788974fb06a67c527cac7c8227f201d75b7d6d",
+        "runtimeFormat": "public/bigram.json",
+        "trainingAtRuntime": false
+      }
+    },
+    {
+      "pair": "04",
+      "title": "模型蒸馏",
+      "family": "ml",
+      "attack": {
+        "id": "A04",
+        "entry": [
+          "attack"
+        ],
+        "weights": {
+          "required": true,
+          "kind": "state_dict",
+          "models": [
+            "default"
+          ],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D04",
+        "entry": [
+          "NoiseDefense"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Opponent NoiseDefense transforms teacher logits queried by submitted attack; uploaded distilled model is frozen.",
+      "adapter": "requires-pair-adapter",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "numpy/tensor-data",
+        "remote-object",
+        "capability-callback"
+      ]
+    },
+    {
+      "pair": "05",
+      "title": "目标检测对抗贴片",
+      "family": "media",
+      "attack": {
+        "id": "A05",
+        "entry": [
+          "GradientPatchAttack"
+        ],
+        "weights": {
+          "required": true,
+          "kind": "tensor",
+          "models": [
+            "patch"
+          ],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D05",
+        "entry": [
+          "ResNet18Classifier"
+        ],
+        "weights": {
+          "required": true,
+          "kind": "state_dict",
+          "models": [
+            "default"
+          ],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Opponent detector classifier infers independently patched target crops; preserve per-target patch evaluation.",
+      "adapter": "requires-pair-adapter",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "numpy/tensor-data",
+        "remote-object",
+        "capability-callback"
+      ]
+    },
+    {
+      "pair": "06",
+      "title": "手写数字分类数据投毒",
+      "family": "ml",
+      "attack": {
+        "id": "A06",
+        "entry": [
+          "attack"
+        ],
+        "weights": {
+          "required": true,
+          "kind": "joblib",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D06",
+        "entry": [
+          "defend"
+        ],
+        "weights": {
+          "required": true,
+          "kind": "joblib",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Opponent filter acts on attack-produced labels; uploaded SVM remains frozen, cannot claim refitting on new poison.",
+      "adapter": "requires-pair-adapter",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "numpy/tensor-data",
+        "remote-object",
+        "capability-callback"
+      ]
+    },
+    {
+      "pair": "07",
+      "title": "手写数字局部触发器后门",
+      "family": "ml",
+      "attack": {
+        "id": "A07",
+        "entry": [
+          "attack"
+        ],
+        "weights": {
+          "required": true,
+          "kind": "joblib",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D07",
+        "entry": [
+          "defend"
+        ],
+        "weights": {
+          "required": true,
+          "kind": "joblib",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Attack trigger is applied to fixed test samples; opponent uploaded classifier infers those exact samples.",
+      "adapter": "requires-pair-adapter",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "numpy/tensor-data",
+        "remote-object",
+        "capability-callback"
+      ]
+    },
+    {
+      "pair": "08",
+      "title": "提示词越狱",
+      "family": "api",
+      "attack": {
+        "id": "A08",
+        "entry": [
+          "attack"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D08",
+        "entry": [
+          "defend"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Actual submitted attack and opponent defense execute together on fixed samples. Replace both sides; never treat independent official-reference scores as a matchup.",
+      "adapter": "prompt_runtime.py",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "json-values",
+        "remote-object",
+        "capability-callback"
+      ],
+      "build": "build.py",
+      "requiresCalibration": true,
+      "poolKey": "V3-261012-API-08",
+      "defaultSamples": 20,
+      "metricSamples": "harmful-half-of-samples",
+      "trustedDynamicSystem": true,
+      "zeroReferencePolicy": "zero-only one-effective-sample floor; nonzero reference unchanged; operator freezes exact evidence"
+    },
+    {
+      "pair": "09",
+      "title": "提示词注入",
+      "family": "api",
+      "attack": {
+        "id": "A09",
+        "entry": [
+          "attack"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D09",
+        "entry": [
+          "defend"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Actual submitted attack and opponent defense execute together on fixed samples. Replace both sides; never treat independent official-reference scores as a matchup.",
+      "adapter": "prompt_runtime.py",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "json-values",
+        "remote-object",
+        "capability-callback"
+      ],
+      "build": "build.py",
+      "requiresCalibration": true,
+      "poolKey": "V3-261012-API-09",
+      "defaultSamples": 20,
+      "metricSamples": "samples",
+      "trustedDynamicSystem": false,
+      "zeroReferencePolicy": "zero-only one-effective-sample floor; nonzero reference unchanged; operator freezes exact evidence"
+    },
+    {
+      "pair": "10",
+      "title": "图片隐藏水印消除与鲁棒检测",
+      "family": "media",
+      "attack": {
+        "id": "A10",
+        "entry": [
+          "attack"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D10",
+        "entry": [
+          "defense",
+          "detect"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Attack erases opponent embedded watermark, opponent detect evaluates recovered bits.",
+      "adapter": "requires-pair-adapter",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "numpy/tensor-data",
+        "remote-object",
+        "capability-callback"
+      ]
+    },
+    {
+      "pair": "11",
+      "title": "图像痕迹隐匿与鲁棒检测",
+      "family": "media",
+      "attack": {
+        "id": "A11",
+        "entry": [
+          "JPEGReencodeAttack"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D11",
+        "entry": [
+          "Defense"
+        ],
+        "weights": {
+          "required": true,
+          "kind": "joblib",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Attack image transform feeds opponent frozen Defense.predict.",
+      "adapter": "requires-pair-adapter",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "numpy/tensor-data",
+        "remote-object",
+        "capability-callback"
+      ]
+    },
+    {
+      "pair": "12",
+      "title": "语音隐匿与反欺骗",
+      "family": "media",
+      "attack": {
+        "id": "A12",
+        "entry": [
+          "CodecAttack"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D12",
+        "entry": [
+          "Defense"
+        ],
+        "weights": {
+          "required": true,
+          "kind": "joblib",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Attack audio transform feeds opponent frozen Defense.defend.",
+      "adapter": "requires-pair-adapter",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "numpy/tensor-data",
+        "remote-object",
+        "capability-callback"
+      ]
+    },
+    {
+      "pair": "13",
+      "title": "RAG系统数据投毒",
+      "family": "api",
+      "attack": {
+        "id": "A13",
+        "entry": [
+          "attack"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D13",
+        "entry": [
+          "defend"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Actual submitted attack and opponent defense execute together on fixed samples. Replace both sides; never treat independent official-reference scores as a matchup.",
+      "adapter": "prompt_runtime.py",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "json-values",
+        "remote-object",
+        "capability-callback"
+      ],
+      "build": "build.py",
+      "requiresCalibration": true,
+      "poolKey": "V3-261012-API-13",
+      "defaultSamples": 20,
+      "metricSamples": "samples",
+      "trustedDynamicSystem": false,
+      "zeroReferencePolicy": "zero-only one-effective-sample floor; nonzero reference unchanged; operator freezes exact evidence"
+    },
+    {
+      "pair": "14",
+      "title": "BankBot",
+      "family": "api",
+      "attack": {
+        "id": "A14",
+        "entry": [
+          "attack"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D14",
+        "entry": [
+          "defend"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Actual submitted attack and opponent defense execute together on fixed samples. Replace both sides; never treat independent official-reference scores as a matchup.",
+      "adapter": "bot_runtime.py",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "json-values",
+        "remote-object",
+        "capability-callback"
+      ],
+      "build": "build.py",
+      "requiresCalibration": true,
+      "poolKey": "V3-261012-API-14",
+      "defaultSamples": 20,
+      "metricSamples": "samples",
+      "trustedDynamicSystem": false,
+      "zeroReferencePolicy": "zero-only one-effective-sample floor; nonzero reference unchanged; operator freezes exact evidence"
+    },
+    {
+      "pair": "15",
+      "title": "MailMate",
+      "family": "api",
+      "attack": {
+        "id": "A15",
+        "entry": [
+          "attack"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D15",
+        "entry": [
+          "defend"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Actual submitted attack and opponent defense execute together on fixed samples. Replace both sides; never treat independent official-reference scores as a matchup.",
+      "adapter": "bot_runtime.py",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "json-values",
+        "remote-object",
+        "capability-callback"
+      ],
+      "build": "build.py",
+      "requiresCalibration": true,
+      "poolKey": "V3-261012-API-15",
+      "defaultSamples": 20,
+      "metricSamples": "samples",
+      "trustedDynamicSystem": false,
+      "zeroReferencePolicy": "zero-only one-effective-sample floor; nonzero reference unchanged; operator freezes exact evidence"
+    },
+    {
+      "pair": "16",
+      "title": "ChatOps",
+      "family": "api",
+      "attack": {
+        "id": "A16",
+        "entry": [
+          "attack"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D16",
+        "entry": [
+          "defend"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Actual submitted attack and opponent defense execute together on fixed samples. Replace both sides; never treat independent official-reference scores as a matchup.",
+      "adapter": "bot_runtime.py",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "json-values",
+        "remote-object",
+        "capability-callback"
+      ],
+      "build": "build.py",
+      "requiresCalibration": true,
+      "poolKey": "V3-261012-API-16",
+      "defaultSamples": 20,
+      "metricSamples": "samples",
+      "trustedDynamicSystem": false,
+      "zeroReferencePolicy": "zero-only one-effective-sample floor; nonzero reference unchanged; operator freezes exact evidence"
+    },
+    {
+      "pair": "17",
+      "title": "TripBot",
+      "family": "api",
+      "attack": {
+        "id": "A17",
+        "entry": [
+          "attack"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D17",
+        "entry": [
+          "defend"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Actual submitted attack and opponent defense execute together on fixed samples. Replace both sides; never treat independent official-reference scores as a matchup.",
+      "adapter": "bot_runtime.py",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "json-values",
+        "remote-object",
+        "capability-callback"
+      ],
+      "build": "build.py",
+      "requiresCalibration": true,
+      "poolKey": "V3-261012-API-17",
+      "defaultSamples": 20,
+      "metricSamples": "samples",
+      "trustedDynamicSystem": false,
+      "zeroReferencePolicy": "zero-only one-effective-sample floor; nonzero reference unchanged; operator freezes exact evidence"
+    },
+    {
+      "pair": "18",
+      "title": "SupportBot",
+      "family": "api",
+      "attack": {
+        "id": "A18",
+        "entry": [
+          "attack"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D18",
+        "entry": [
+          "defend"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Actual submitted attack and opponent defense execute together on fixed samples. Replace both sides; never treat independent official-reference scores as a matchup.",
+      "adapter": "bot_runtime.py",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "json-values",
+        "remote-object",
+        "capability-callback"
+      ],
+      "build": "build.py",
+      "requiresCalibration": true,
+      "poolKey": "V3-261012-API-18",
+      "defaultSamples": 20,
+      "metricSamples": "samples",
+      "trustedDynamicSystem": false,
+      "zeroReferencePolicy": "zero-only one-effective-sample floor; nonzero reference unchanged; operator freezes exact evidence"
+    },
+    {
+      "pair": "19",
+      "title": "ProjectBot",
+      "family": "api",
+      "attack": {
+        "id": "A19",
+        "entry": [
+          "attack"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D19",
+        "entry": [
+          "defend"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Actual submitted attack and opponent defense execute together on fixed samples. Replace both sides; never treat independent official-reference scores as a matchup.",
+      "adapter": "bot_runtime.py",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "json-values",
+        "remote-object",
+        "capability-callback"
+      ],
+      "build": "build.py",
+      "requiresCalibration": true,
+      "poolKey": "V3-261012-API-19",
+      "defaultSamples": 20,
+      "metricSamples": "samples",
+      "trustedDynamicSystem": false,
+      "zeroReferencePolicy": "zero-only one-effective-sample floor; nonzero reference unchanged; operator freezes exact evidence"
+    },
+    {
+      "pair": "20",
+      "title": "VendorBot",
+      "family": "api",
+      "attack": {
+        "id": "A20",
+        "entry": [
+          "attack"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D20",
+        "entry": [
+          "defend"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Actual submitted attack and opponent defense execute together on fixed samples. Replace both sides; never treat independent official-reference scores as a matchup.",
+      "adapter": "bot_runtime.py",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "json-values",
+        "remote-object",
+        "capability-callback"
+      ],
+      "build": "build.py",
+      "requiresCalibration": true,
+      "poolKey": "V3-261012-API-20",
+      "defaultSamples": 20,
+      "metricSamples": "samples",
+      "trustedDynamicSystem": false,
+      "zeroReferencePolicy": "zero-only one-effective-sample floor; nonzero reference unchanged; operator freezes exact evidence"
+    },
+    {
+      "pair": "21",
+      "title": "AgendaBot",
+      "family": "api",
+      "attack": {
+        "id": "A21",
+        "entry": [
+          "attack"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D21",
+        "entry": [
+          "defend"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Actual submitted attack and opponent defense execute together on fixed samples. Replace both sides; never treat independent official-reference scores as a matchup.",
+      "adapter": "bot_runtime.py",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "json-values",
+        "remote-object",
+        "capability-callback"
+      ],
+      "build": "build.py",
+      "requiresCalibration": true,
+      "poolKey": "V3-261012-API-21",
+      "defaultSamples": 20,
+      "metricSamples": "samples",
+      "trustedDynamicSystem": false,
+      "zeroReferencePolicy": "zero-only one-effective-sample floor; nonzero reference unchanged; operator freezes exact evidence"
+    },
+    {
+      "pair": "22",
+      "title": "WebBot",
+      "family": "api",
+      "attack": {
+        "id": "A22",
+        "entry": [
+          "attack"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D22",
+        "entry": [
+          "defend"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Actual submitted attack and opponent defense execute together on fixed samples. Replace both sides; never treat independent official-reference scores as a matchup.",
+      "adapter": "bot_runtime.py",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "json-values",
+        "remote-object",
+        "capability-callback"
+      ],
+      "build": "build.py",
+      "requiresCalibration": true,
+      "poolKey": "V3-261012-API-22",
+      "defaultSamples": 20,
+      "metricSamples": "samples",
+      "trustedDynamicSystem": false,
+      "zeroReferencePolicy": "zero-only one-effective-sample floor; nonzero reference unchanged; operator freezes exact evidence"
+    },
+    {
+      "pair": "23",
+      "title": "成员推断攻击与隐私保护训练",
+      "family": "privacy",
+      "attack": {
+        "id": "A23",
+        "entry": [
+          "attack"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D23",
+        "entry": [
+          "defend"
+        ],
+        "weights": {
+          "required": true,
+          "kind": "state_dict",
+          "models": [
+            "default"
+          ],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Submitted member inference queries opponent uploaded private classifier; public candidates exclude membership labels.",
+      "adapter": "requires-pair-adapter",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "numpy/tensor-data",
+        "remote-object",
+        "capability-callback"
+      ]
+    },
+    {
+      "pair": "24",
+      "title": "联邦学习梯度反演与梯度保护",
+      "family": "privacy",
+      "attack": {
+        "id": "A24",
+        "entry": [
+          "dlg_attack"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D24",
+        "entry": [
+          "_protect_core"
+        ],
+        "weights": {
+          "required": true,
+          "kind": "state_dict",
+          "models": [
+            "default"
+          ],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Opponent _protect_core produces protected gradients; submitted dlg_attack reconstructs from protected gradients, requires public differentiable architecture inside worker.",
+      "adapter": "requires-pair-adapter",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "numpy/tensor-data",
+        "remote-object",
+        "capability-callback",
+        "differentiable-public-model-in-worker"
+      ]
+    },
+    {
+      "pair": "25",
+      "title": "机器遗忘与遗忘验证",
+      "family": "privacy",
+      "attack": {
+        "id": "A25",
+        "entry": [
+          "attack"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D25",
+        "entry": [
+          "NegGradRetainFinetune"
+        ],
+        "weights": {
+          "required": true,
+          "kind": "state_dict",
+          "models": [
+            "default"
+          ],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Submitted forgetting verifier queries opponent uploaded unlearned classifier; no server finetuning.",
+      "adapter": "requires-pair-adapter",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "numpy/tensor-data",
+        "remote-object",
+        "capability-callback"
+      ]
+    },
+    {
+      "pair": "26",
+      "title": "训练数据脱敏发布与重识别",
+      "family": "privacy",
+      "attack": {
+        "id": "A26",
+        "entry": [
+          "qi_distance"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D26",
+        "entry": [
+          "_best_numeric_cut",
+          "_best_categorical_cut"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Opponent anonymizer release feeds attacker reidentification distance; table RPC serialization needed.",
+      "adapter": "requires-pair-adapter",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "numpy/tensor-data",
+        "remote-object",
+        "capability-callback",
+        "explicit-dataframe-codec"
+      ]
+    },
+    {
+      "pair": "27",
+      "title": "系统提示词窃取",
+      "family": "api",
+      "attack": {
+        "id": "A27",
+        "entry": [
+          "AdaptiveRolePlayExtraction"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D27",
+        "entry": [
+          "GuardedPromptWithLeakFilter"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Actual submitted attack and opponent defense execute together on fixed samples. Replace both sides; never treat independent official-reference scores as a matchup.",
+      "adapter": "class_runtime.py",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "json-values",
+        "remote-object",
+        "capability-callback"
+      ],
+      "build": "build.py",
+      "requiresCalibration": true,
+      "poolKey": "V3-261012-API-27",
+      "defaultSamples": 6,
+      "metricSamples": "secret-span-count",
+      "trustedDynamicSystem": true,
+      "zeroReferencePolicy": "zero-only one-effective-sample floor; nonzero reference unchanged; operator freezes exact evidence"
+    },
+    {
+      "pair": "28",
+      "title": "RAG知识库窃取",
+      "family": "api",
+      "attack": {
+        "id": "A28",
+        "entry": [
+          "EnumerativeCitationProbe"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D28",
+        "entry": [
+          "SecretSpanRetrievalFilter"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Actual submitted attack and opponent defense execute together on fixed samples. Replace both sides; never treat independent official-reference scores as a matchup.",
+      "adapter": "class_runtime.py",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "json-values",
+        "remote-object",
+        "capability-callback"
+      ],
+      "build": "build.py",
+      "requiresCalibration": true,
+      "poolKey": "V3-261012-API-28",
+      "defaultSamples": 30,
+      "metricSamples": "secret-span-count",
+      "trustedDynamicSystem": true,
+      "zeroReferencePolicy": "zero-only one-effective-sample floor; nonzero reference unchanged; operator freezes exact evidence"
+    },
+    {
+      "pair": "30",
+      "title": "推荐系统托攻击与假用户检测",
+      "family": "reco",
+      "attack": {
+        "id": "A30",
+        "entry": [
+          "select_filler",
+          "filler_values",
+          "build_fake_profiles"
+        ],
+        "weights": {
+          "required": false,
+          "kind": "none",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D30",
+        "entry": [
+          "FeatureBasedProfileDetector"
+        ],
+        "weights": {
+          "required": true,
+          "kind": "joblib",
+          "models": [],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Attack fake profiles feed opponent frozen FeatureBasedProfileDetector; trusted grader recomputes retained-profile ItemKNN exposure.",
+      "adapter": "requires-pair-adapter",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "numpy/tensor-data",
+        "remote-object",
+        "capability-callback"
+      ]
+    },
+    {
+      "pair": "31",
+      "title": "推荐系统投毒与鲁棒推荐学习",
+      "family": "reco",
+      "attack": {
+        "id": "A31",
+        "entry": [
+          "_blockers",
+          "_plan_round"
+        ],
+        "weights": {
+          "required": true,
+          "kind": "mf-params",
+          "models": [
+            "mf"
+          ],
+          "filename": "submission/model.pt"
+        }
+      },
+      "defense": {
+        "id": "D31",
+        "entry": [
+          "mad_scale",
+          "robust_weights"
+        ],
+        "weights": {
+          "required": true,
+          "kind": "mf-params",
+          "models": [
+            "mf"
+          ],
+          "filename": "submission/model.pt"
+        }
+      },
+      "scorePolicy": "baseline-calibrated-on-official-reference; opponent-pool-binary-success >= frozen threshold; no opponent =100%; errors excluded",
+      "pairing": "Frozen matrix factorization models cannot be retrained; couple attacker poison profiles to defender robust_weights screening without claiming new-model training.",
+      "adapter": "requires-pair-adapter",
+      "assetIssues": [],
+      "rpcNeeds": [
+        "numpy/tensor-data",
+        "remote-object",
+        "capability-callback"
+      ]
+    }
+  ],
+  "apiAdapterCount": 16,
+  "apiImplementation": "build.py builds 32 role questions with paired independent workers; actual model calibration is still required"
+}

@@ -1,5 +1,36 @@
 import type { QuestionRecord } from './prdApi'
-import { matchesArenaScenario, resolveArenaScenario } from './arenaTeaching'
+import { resolveArenaScenario } from './arenaTeaching'
+
+const moduleLabels: Record<string, string> = {
+  AI_BASIC_V3: '人工智能基础实验',
+  AI_API_V3: '大模型与 Agent 攻防',
+  AI_MEDIA_V3: '图像与音频安全',
+  AI_SECURITY_V3: '模型安全',
+  AI_PRIVACY_V3: '隐私保护',
+  AI_RECO_V3: '推荐系统安全',
+}
+export function questionModuleLabel(code?: string | null): string {
+  return code ? moduleLabels[code] || code : '基础练习'
+}
+export function hallScenario(question: QuestionRecord) {
+  const legacy = resolveArenaScenario(question)
+  if (legacy) return { id: legacy.id, title: legacy.title, group: legacy.group }
+  const id = question.scenarioId ?? question.definition.scenarioId
+  if (!id || !['adversarial', 'security'].includes(question.category)) return undefined
+  return {
+    id,
+    title: question.title.replace(/\s*(?:[（(](?:攻击|防御)[）)]|·\s*(?:攻击|防御))$/, ''),
+    group: question.moduleCode ? questionModuleLabel(question.moduleCode) : '其他攻防',
+  }
+}
+export function hallScenarios(questions: QuestionRecord[]) {
+  const scenarios = new Map<string, NonNullable<ReturnType<typeof hallScenario>>>()
+  for (const question of questions) {
+    const scenario = hallScenario(question)
+    if (scenario && !scenarios.has(scenario.id)) scenarios.set(scenario.id, scenario)
+  }
+  return [...scenarios.values()]
+}
 
 export const questionKinds: Record<string, string> = {
   algorithm: '算法',
@@ -19,10 +50,18 @@ export function questionAttemptState(question: QuestionRecord): string {
 export function filterHallQuestions(questions: QuestionRecord[], params: URLSearchParams) {
   const search = (params.get('q') || '').trim().toLocaleLowerCase()
   const selected = questions.filter((q) => {
-    const scenario = resolveArenaScenario(q)
+    const scenario = hallScenario(q)
     return (
       (!search ||
-        [q.id, q.number, q.title, q.moduleCode, scenario?.title, ...(q.tags || [])]
+        [
+          q.id,
+          q.number,
+          q.title,
+          q.moduleCode,
+          questionModuleLabel(q.moduleCode),
+          scenario?.title,
+          ...(q.tags || []),
+        ]
           .join(' ')
           .toLocaleLowerCase()
           .includes(search)) &&
@@ -31,7 +70,7 @@ export function filterHallQuestions(questions: QuestionRecord[], params: URLSear
       (!params.get('role') || q.definition.role === params.get('role')) &&
       (!params.get('module') || q.moduleCode === params.get('module')) &&
       (!params.get('state') || questionAttemptState(q) === params.get('state')) &&
-      (!params.get('scenario') || matchesArenaScenario(q, params.get('scenario')!)) &&
+      (!params.get('scenario') || scenario?.id === params.get('scenario')) &&
       (!params.get('group') || scenario?.group === params.get('group'))
     )
   })
