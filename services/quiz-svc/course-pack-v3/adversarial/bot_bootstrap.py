@@ -42,7 +42,7 @@ def _load_role(code_path, role, data=None, diagnostics=None):
     module = types.ModuleType("student_code")
     module.__file__ = str(code_path)
     sys.modules["student_code"] = module
-    exec(compile(ast.fix_missing_locations(backend), str(code_path), "exec"), module.__dict__)
+    exec(compile(ast.unparse(ast.fix_missing_locations(backend)), str(code_path), "exec"), module.__dict__)
     config = json.loads((public / "course.json").read_text(encoding="utf8"))
     symbols = config.get("symbols", {}).get(role, ["attack" if role == "attack" else "defend"])
     for symbol in symbols:

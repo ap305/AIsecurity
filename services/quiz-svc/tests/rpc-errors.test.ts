@@ -4,13 +4,14 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { PLATFORM_STUDENT_CLIENT_SOURCE } from '../src/services/composeJudge.js'
+import { PLATFORM_MODEL_GATEWAY_RELAY_SOURCE, PLATFORM_STUDENT_CLIENT_SOURCE } from '../src/services/composeJudge.js'
 import { EVALUATION_EXAMPLE_ROOT } from '../src/lib/evaluationPackage.js'
 
 function runPython(source: string): unknown {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rpc-errors-'))
   try {
     fs.writeFileSync(path.join(root, 'platform_student.py'), PLATFORM_STUDENT_CLIENT_SOURCE)
+    fs.writeFileSync(path.join(root, 'gateway_relay.py'), PLATFORM_MODEL_GATEWAY_RELAY_SOURCE)
     fs.writeFileSync(path.join(root, 'probe.py'), source)
     return JSON.parse(
       execFileSync(
@@ -44,6 +45,36 @@ server.shutdown(); server.server_close()
 print(json.dumps(results))
 `)
   assert.deepEqual(result, [42, 'StudentExecutionError', ...Array(5).fill('EvaluationInfrastructureError')])
+})
+
+test('model relay leaves room for the bounded upstream timeout without retrying or refunding call budget', () => {
+  const result = runPython(`import http.server, io, json, pathlib, runpy, urllib.request
+from unittest import mock
+config = dict(localToken='local-fixture', token='upstream-fixture', url='http://fixture.invalid', maxCalls=1)
+with mock.patch.object(pathlib.Path, 'read_text', return_value=json.dumps(config)), mock.patch.object(http.server, 'ThreadingHTTPServer'):
+ scope = runpy.run_path(str(pathlib.Path(__file__).parent/'gateway_relay.py'))
+handler_type = scope['Handler']
+body = b'{"messages":[{"role":"user","content":"fixture"}]}'
+events = []
+def invoke():
+ handler = object.__new__(handler_type)
+ handler.path = '/chat/completions'
+ handler.headers = {'Authorization':'Bearer local-fixture', 'Content-Length':str(len(body))}
+ handler.rfile, handler.wfile = io.BytesIO(body), io.BytesIO()
+ handler.send_error = lambda code: events.append(code)
+ handler.do_POST()
+with mock.patch.object(urllib.request, 'urlopen', side_effect=TimeoutError('private transport')) as upstream:
+ invoke()
+ timeout = upstream.call_args.kwargs['timeout']
+ request = upstream.call_args.args[0]
+ invoke()
+ print(json.dumps(dict(timeout=timeout, attempts=upstream.call_count, events=events,
+                      body=json.loads(request.data), method=request.method)))
+`)
+  assert.deepEqual(result, {
+    timeout: 315, attempts: 1, events: [502, 429],
+    body: { messages: [{ role: 'user', content: 'fixture' }] }, method: 'POST',
+  })
 })
 
 test('RPC classifies DNS, socket timeout and expired deadline without exposing transport details', () => {

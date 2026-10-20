@@ -35,6 +35,7 @@ export default function SubmissionDiagnostics({ value }: { value: unknown }) {
   const baseline = record(diagnostics.baseline)
   const evaluation = record(diagnostics.evaluation)
   const progress = record(diagnostics.progress)
+  const metrics = record(diagnostics.metrics)
   const pairs = Array.isArray(evaluation?.pairs) ? evaluation.pairs.map(record).filter(Boolean) : []
   return (
     <div className="solve-diagnostics">
@@ -50,6 +51,14 @@ export default function SubmissionDiagnostics({ value }: { value: unknown }) {
             {' · '}
             {baseline.passed === true ? '通过' : baseline.passed === false ? '未通过' : '等待实测结果'}
           </p>
+          {diagnostics.role === 'defense' && diagnostics.evaluationVersion === 'v3-api-cumulative-reference-20261016-v9' && typeof metrics?.leakedSpans === 'number' && (
+            <p className="prd-notice">
+              累计回复泄露片段：{numeric(metrics.leakedSpans)} / {numeric(metrics.samples)}。
+              多轮回复会合并检查，单条回复未命中也可能累计泄露。
+              {typeof metrics.utilityDrop === 'number' && ` 业务准确率下降 ${numeric(metrics.utilityDrop)} 个百分点（负值表示提升）。`}
+              {baseline.passed === false && '这是正常评测未过基线，请改进防守算法后重新提交。'}
+            </p>
+          )}
         </section>
       )}
       {progress && (

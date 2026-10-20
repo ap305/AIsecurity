@@ -87,8 +87,23 @@ export async function processEvaluationTask(id: string) {
     if (snapshot.category === 'adversarial') {
       await processArenaSubmission(submission.id)
       const latest = await prisma.submission.findUniqueOrThrow({ where: { id: submission.id } })
-      if (latest.status === 'error')
-        await failAttempt(task, { publicMessage: '攻防评测未完成，将按有限重试规则处理' }, true)
+      if (latest.status === 'error') {
+        const result = parseJson<Record<string, unknown>>(latest.result, {})
+        const status = result.evaluationStatus
+        const known = ['student_error', 'timeout', 'system_error'].includes(String(status))
+        // The arena publishes fixed messages; never relay an untrusted raw evaluator message.
+        const messages = {
+          student_error:'代码或模型运行失败，请核对题目接口、依赖及模型结构后重新提交；本次不计分，原有效成绩保留',
+          timeout:'评测超时，本次不计分，原有效成绩保留',
+          system_error:'评测环境异常，本次不计分，原有效成绩保留；请联系管理员查看任务状态',
+        }
+        await failAttempt(task, {
+          counted:false,
+          ...(known ? {evaluationStatus:status} : {}),
+          publicMessage:known ? messages[status as keyof typeof messages] : '攻防评测未完成，已按有限重试规则处理；原有效成绩保留',
+          ...(['cleaned','cleanup_failed','not_started'].includes(String(result.cleanupStatus)) ? {cleanupStatus:result.cleanupStatus} : {}),
+        }, status !== 'student_error', typeof result.cleanupStatus === 'string' ? result.cleanupStatus : undefined)
+      }
       else
         await prisma.evaluationTask.updateMany({
           where: { id, state: 'running', attempts: task.attempts },

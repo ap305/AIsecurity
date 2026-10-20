@@ -30,6 +30,16 @@ def load(name, filename):
 
 
 class RuntimeContracts(unittest.TestCase):
+    def setUp(self):
+        import blind_detection
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        seed = pathlib.Path(folder.name) / 'evaluation-order.json'
+        seed.write_text(json.dumps({'schemaVersion': 1, 'seed': '3f' * 32}), encoding='utf8')
+        change = patch.object(blind_detection, 'ORDER_PATH', seed)
+        change.start()
+        self.addCleanup(change.stop)
+
     def run_grade(self, parameters, metrics, phase='opponent'):
         api = rpc_api()
         scenario = types.ModuleType('scenarios')
@@ -111,7 +121,8 @@ class RuntimeContracts(unittest.TestCase):
         official.evaluate_pair = evaluate_pair
         attack = types.SimpleNamespace(attack=lambda value: value, identity_attack=lambda value: value)
         defense = types.SimpleNamespace(defense=fail, detect=lambda value: {'watermark_probability': .5})
-        with patch.object(scenarios, 'load_watermark', return_value=[]):
+        with patch.object(scenarios, 'load_watermark', return_value=[]), \
+                patch('blind_watermark.evaluate_pair', side_effect=lambda legacy, ctx, *args: evaluate_pair(*args)):
             with self.assertRaises(api.StudentExecutionError):
                 scenarios.watermark({'role': 'attack', 'phase': 'baseline', 'student': None}, official, attack, defense)
 

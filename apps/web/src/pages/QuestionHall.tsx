@@ -10,6 +10,9 @@ import {
   questionAttemptState,
   questionKinds,
   questionModuleLabel,
+  hallFilterParams,
+  hallLibraryQuestions,
+  resetHallFilters,
 } from '../lib/hallFilters'
 import './QuestionHall.css'
 
@@ -75,14 +78,29 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
       { replace: true },
     )
   }
-  const filtered = useMemo(() => filterHallQuestions(questions, params), [questions, params])
+  const libraryQuestions = useMemo(
+    () => hallLibraryQuestions(questions, category, params),
+    [questions, category, params],
+  )
+  const filtered = useMemo(
+    () => filterHallQuestions(libraryQuestions, hallFilterParams(params, category)),
+    [libraryQuestions, params, category],
+  )
   const { page, pages } = hallPage(params.get('page'), filtered.length, PAGE_SIZE)
   const visible = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
-  const modules = [...new Set(questions.map((q) => q.moduleCode).filter(Boolean))].sort()
-  const scenarios = hallScenarios(questions)
+  useEffect(() => {
+    const next = hallFilterParams(params, category)
+    if (next.toString() !== params.toString()) {
+      next.delete('page')
+      setParams(next, { replace: true })
+    }
+  }, [params, setParams, category])
+  const scenarios = hallScenarios(libraryQuestions)
   const groups = [...new Set(scenarios.map((s) => s.group))]
-  const attempted = questions.filter((q) => questionAttemptState(q) !== 'not_submitted').length
-  const scored = questions.filter((q) => q.myScore != null).length
+  const attempted = libraryQuestions.filter((q) => questionAttemptState(q) !== 'not_submitted').length
+  const scored = libraryQuestions.filter((q) => q.myScore != null).length
+  const resetParams = resetHallFilters(params, category)
+  const hasFilters = params.toString() !== resetParams.toString()
   const select = (name: string, label: string, choices: Record<string, string>) => (
     <label className="hall-filter">
       <span>{label}</span>
@@ -106,7 +124,15 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
       <header className="hall-heading">
         <div>
           <div className="hall-eyebrow">{adversarial ? '攻防训练' : '基础练习'}</div>
-          <h1>{adversarial ? '对战大厅' : '任务大厅'}</h1>
+          <h1>
+            {adversarial
+              ? params.get('role') === 'attack'
+                ? '攻击题库'
+                : params.get('role') === 'defense'
+                  ? '防御题库'
+                  : '攻防题库'
+              : '基础题库'}
+          </h1>
           <p className="prd-muted">
             {adversarial
               ? '选择场景和固定角色，进入简报、编写代码、提交对战并复盘。'
@@ -116,18 +142,47 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
         <dl className="hall-progress" aria-label="我的练习进度">
           <div>
             <dt>已开放</dt>
-            <dd>{loading ? '—' : questions.length}</dd>
+            <dd>{loading || error ? '—' : libraryQuestions.length}</dd>
           </div>
           <div>
             <dt>已尝试</dt>
-            <dd>{loading ? '—' : attempted}</dd>
+            <dd>{loading || error ? '—' : attempted}</dd>
           </div>
           <div>
             <dt>已有成绩</dt>
-            <dd>{loading ? '—' : scored}</dd>
+            <dd>{loading || error ? '—' : scored}</dd>
           </div>
         </dl>
       </header>
+      <div className="hall-toolbar">
+        <nav className="hall-library-tabs" aria-label="选择题库类型">
+          {[
+            { to: '/', label: '基础题', active: !adversarial },
+            {
+              to: '/arena?role=attack',
+              label: '攻击题',
+              active: adversarial && params.get('role') === 'attack',
+            },
+            {
+              to: '/arena?role=defense',
+              label: '防御题',
+              active: adversarial && params.get('role') === 'defense',
+            },
+          ].map((item) => (
+            <Link key={item.to} to={item.to} aria-current={item.active ? 'page' : undefined}>
+              {item.label}
+            </Link>
+          ))}
+        </nav>
+        <button
+          className="prd-button"
+          disabled={loading}
+          aria-busy={loading}
+          onClick={() => setAttempt((v) => v + 1)}
+        >
+          {loading ? '加载中…' : '刷新题库'}
+        </button>
+      </div>
       {adversarial && scenarios.length > 0 && (
         <div className="hall-scenarios" aria-label="攻防场景">
           <button
@@ -170,12 +225,10 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
             {select('group', '领域', Object.fromEntries(groups.map((g) => [g, g])))}
             {select('role', '角色', { attack: '攻击', defense: '防御' })}
           </>
-        ) : (
-          select('module', '领域', Object.fromEntries(modules.map((m) => [m!, questionModuleLabel(m)])))
-        )}
+        ) : null}
       </section>
       <div className="hall-table-heading">
-        <span>{loading ? '正在加载题库…' : `${filtered.length} 道题目`}</span>
+        <span>{loading ? '正在加载题库…' : error ? '题库加载失败' : `${filtered.length} 道题目`}</span>
         <div>
           <label>
             排序{' '}
@@ -189,8 +242,8 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
               <option value="score">我的成绩</option>
             </select>
           </label>
-          {params.toString() && (
-            <button className="hall-text-button" onClick={() => setParams({}, { replace: true })}>
+          {hasFilters && (
+            <button className="hall-text-button" onClick={() => setParams(resetParams, { replace: true })}>
               重置筛选
             </button>
           )}
@@ -297,6 +350,14 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
                             ? '调整筛选条件，查看其他题目。'
                             : '题目完成评测配置并发布后，会显示在这里。'}
                       </p>
+                      {hasFilters && !error && (
+                        <button
+                          className="prd-button"
+                          onClick={() => setParams(resetParams, { replace: true })}
+                        >
+                          清除筛选，查看题库
+                        </button>
+                      )}
                       {!questions.length &&
                         !error &&
                         (isAdmin ? (

@@ -9,6 +9,12 @@ import 'katex/dist/katex.min.css'
 import './SolveQuestion.css'
 import { useAuth } from '../contexts/AuthContext'
 import { apiGet } from '../lib/api'
+import {
+  groupResources,
+  isPublicResource,
+  resourceSize,
+  type QuestionResource,
+} from '../lib/questionResources'
 import TeacherLeasePanel from '../components/TeacherLeasePanel'
 import ArenaTeachingBriefing from '../components/ArenaTeachingBriefing'
 import LegacyUploadHistory from '../components/LegacyUploadHistory'
@@ -58,32 +64,6 @@ function idempotencyKey(): string {
       ).join('')
 }
 
-interface QuestionResource {
-  filename: string
-  size: number
-}
-
-function isPublicResource(value: unknown): value is QuestionResource {
-  if (!value || typeof value !== 'object') return false
-  const resource = value as Record<string, unknown>
-  return (
-    typeof resource.filename === 'string' &&
-    resource.filename.length > 0 &&
-    !resource.filename.startsWith('.') &&
-    !/[\\/\u0000-\u001f\u007f]/.test(resource.filename) &&
-    !resource.filename.includes('..') &&
-    typeof resource.size === 'number' &&
-    Number.isFinite(resource.size) &&
-    resource.size >= 0
-  )
-}
-
-function resourceSize(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-}
-
 function QuestionResources({ questionId }: { questionId: string }) {
   const [resources, setResources] = useState<QuestionResource[]>([])
   const [loading, setLoading] = useState(true)
@@ -114,7 +94,7 @@ function QuestionResources({ questionId }: { questionId: string }) {
   return (
     <section className="solve-resources" aria-label="题目资料下载">
       <h3>资料下载</h3>
-      <p className="prd-muted">本题提供的实验说明、数据集和代码模板，可下载后用于本地实验。</p>
+      <p className="prd-muted">附件按用途分类。优先阅读说明、下载模板和实验包；配图可展开查看。</p>
       {loading && (
         <p className="prd-muted" role="status">
           正在加载资料…
@@ -128,23 +108,44 @@ function QuestionResources({ questionId }: { questionId: string }) {
           </button>
         </div>
       )}
-      <ul className="solve-resource-list">
-        {resources.map((resource) => (
-          <li key={resource.filename}>
-            <a
-              className="solve-resource-link"
-              href={`/api/questions/${encodeURIComponent(questionId)}/resources/${encodeURIComponent(resource.filename)}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              download={resource.filename}
-            >
-              <span className="solve-resource-name">{resource.filename}</span>
-              <span className="solve-resource-size">{resourceSize(resource.size)}</span>
-              <span className="solve-resource-action">下载</span>
-            </a>
-          </li>
-        ))}
-      </ul>
+      {groupResources(resources).map((group) => {
+        const links = (
+          <ul className="solve-resource-list">
+            {group.resources.map((resource) => (
+              <li key={resource.filename}>
+                <a
+                  className="solve-resource-link"
+                  href={`/api/questions/${encodeURIComponent(questionId)}/resources/${encodeURIComponent(resource.filename)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  download={resource.filename}
+                >
+                  <span className="solve-resource-name">{resource.filename}</span>
+                  <span className="solve-resource-size">{resourceSize(resource.size)}</span>
+                  <span className="solve-resource-action">下载</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        )
+        return group.kind === 'image' ? (
+          <details className="solve-resource-group" key={group.kind}>
+            <summary>
+              {group.label} <span>({group.resources.length})</span>
+            </summary>
+            <p className="prd-muted">{group.hint}</p>
+            {links}
+          </details>
+        ) : (
+          <section className="solve-resource-group" key={group.kind} aria-label={group.label}>
+            <h4>
+              {group.label} <span>({group.resources.length})</span>
+            </h4>
+            <p className="prd-muted">{group.hint}</p>
+            {links}
+          </section>
+        )
+      })}
     </section>
   )
 }

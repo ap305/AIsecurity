@@ -13,6 +13,7 @@ import { resetQuestionScores } from './basicScores.js'
 import { SCENARIO_PAIR_BY_QUESTION_ID } from '../lib/scenarioQuestions.js'
 import { getStudentHint } from '../lib/studentHints.js'
 import { invalidateArenaQuestionTx, drainArenaRecomputations } from './arenaScoring.js'
+import {assertQuestionUpdatePrecondition} from '../lib/questionUpdatePrecondition.js'
 import { selfTestConfigurationKey } from '../lib/selfTestContract.js'
 
 export function questionIdentity(row: Question) {
@@ -178,6 +179,7 @@ export async function saveQuestion(id: string, body: any, actorId: string, creat
   const existing = await prisma.question.findUnique({ where: { id } })
   if (create && existing) throw new RequestError('题目 ID 已存在', 409)
   if (!create && !existing) throw new RequestError('题目不存在', 404)
+  if(body.expectedQuestionDigest!==undefined)assertQuestionUpdatePrecondition(existing?questionView(existing,true):null,body.expectedQuestionDigest)
   if (!/^[A-Za-z0-9_-]{1,100}$/.test(id)) throw new RequestError('题目 ID 仅支持字母、数字、下划线与连字符')
   const updates = editableBody(body)
   const combined = {
@@ -282,6 +284,7 @@ export async function saveQuestion(id: string, body: any, actorId: string, creat
   }
   const saved = await transaction(async (tx) => {
     const current = await tx.question.findUnique({ where: { id } })
+    if(body.expectedQuestionDigest!==undefined)assertQuestionUpdatePrecondition(current?questionView(current,true):null,body.expectedQuestionDigest)
     if (existing && current?.updatedAt.getTime() !== existing.updatedAt.getTime())
       throw new RequestError('题目刚被其他操作修改，请刷新后重试', 409)
     let revision = current?.revision ?? 1

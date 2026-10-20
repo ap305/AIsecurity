@@ -62,6 +62,7 @@ export interface ImportOptions {
   stage?: Stage
   dryRun?: boolean
   only?: string[]
+  publishReadyBasics?: boolean
   poolBindings?: { llm?: string; teacher?: string }
   recoverSelfTests?: Record<string, Partial<Record<Phase, string>>>
   retryFailed?: boolean
@@ -226,7 +227,7 @@ export async function importCoursePack(options: ImportOptions) {
   const loaded = loadCoursePack(path.resolve(options.manifest)), { manifest, root, manifestDigest } = loaded
   const stage = options.stage || 'prepare'
   requireThat(['prepare', 'self-test', 'publish', 'verify', 'all'].includes(stage), 'stage_invalid')
-  if (['all', 'publish', 'verify'].includes(stage)) {
+  if (['all', 'publish', 'verify'].includes(stage) && !options.publishReadyBasics) {
     requireThat(!manifest.requiresCalibration && manifest.deploymentReady !== false && manifest.questions.every((q) =>
       !q.requiresCalibration && q.deploymentReady !== false && !(object(q.definition.evaluation.parameters) && q.definition.evaluation.parameters.calibrationMode === true)),
     'course_pack_not_calibrated_or_deployment_ready')
@@ -234,6 +235,14 @@ export async function importCoursePack(options: ImportOptions) {
   const selected = new Set(options.only || COURSE_PACK_IDS)
   requireThat(selected.size > 0 && selected.size === (options.only?.length ?? 77) && [...selected].every((id) => COURSE_PACK_IDS.includes(id)), 'selected_scope_invalid')
   const rows = manifest.questions.filter((q) => selected.has(q.id))
+  if (options.publishReadyBasics) {
+    const basicIds = COURSE_PACK_IDS.filter((id) => id.startsWith('V3-261012-B'))
+    requireThat(options.only && selected.size === 17 && basicIds.every((id) => selected.has(id)), 'ready_basics_requires_exact_explicit_17')
+    requireThat(rows.every((q) => q.category === 'basic' && !q.definition.llm.enabled &&
+      q.requiresCalibration === false && q.deploymentReady === true &&
+      !(object(q.definition.evaluation.parameters) && q.definition.evaluation.parameters.calibrationMode === true)),
+    'selected_basics_not_calibrated_or_ready')
+  }
   const bindings = options.poolBindings || {}
   keys(bindings, ['llm', 'teacher'], 'pool_binding_fields_invalid')
   requireThat(Object.values(bindings).every((id) => typeof id === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(id)), 'pool_binding_id_invalid')
@@ -290,7 +299,9 @@ export async function importCoursePack(options: ImportOptions) {
     let response: Response
     try {
       httpRequests++
-      response = await fetch(target + route, { method, redirect: 'error', signal: AbortSignal.timeout(120000), headers: { Authorization: `Bearer ${token}`, ...(data !== undefined && !multipart ? { 'Content-Type': 'application/json' } : {}) }, body: data === undefined ? undefined : multipart ? data : JSON.stringify(data) })
+      // Archive hashing/compression blocks the event loop beyond idle socket
+      // timeouts; use a fresh connection without retrying uncertain writes.
+      response = await fetch(target + route, { method, redirect: 'error', signal: AbortSignal.timeout(120000), headers: { Authorization: `Bearer ${token}`, Connection: 'close', ...(data !== undefined && !multipart ? { 'Content-Type': 'application/json' } : {}) }, body: data === undefined ? undefined : multipart ? data : JSON.stringify(data) })
     } catch { throw new ImportError('http_outcome_unknown') }
     if (missing && response.status === 404) return null
     let result: any
@@ -510,7 +521,7 @@ export async function importCoursePack(options: ImportOptions) {
         requireThat(Array.isArray(listed) && canonical(listed.map((r: any) => r.filename).sort()) === canonical(q.resources.map((r) => r.filename).sort()), 'public_resource_list_mismatch')
         for (const resource of q.resources) {
           let response: Response
-          try { httpRequests++; response = await fetch(`${target}/questions/${encodeURIComponent(q.id)}/resources/${encodeURIComponent(resource.filename)}`, { redirect: 'error', signal: AbortSignal.timeout(120000), headers: { Authorization: `Bearer ${token}` } }) } catch { throw new ImportError('resource_download_failed') }
+          try { httpRequests++; response = await fetch(`${target}/questions/${encodeURIComponent(q.id)}/resources/${encodeURIComponent(resource.filename)}`, { redirect: 'error', signal: AbortSignal.timeout(120000), headers: { Authorization: `Bearer ${token}`, Connection: 'close' } }) } catch { throw new ImportError('resource_download_failed') }
           requireThat(response.ok && sha256(Buffer.from(await response.arrayBuffer())) === resource.sha256, 'public_resource_digest_mismatch')
         }
         log({ questionId: q.id, stage: 'verified', revision: current.revision })
@@ -523,10 +534,10 @@ export async function importCoursePack(options: ImportOptions) {
 }
 
 export async function main(args = process.argv.slice(2)) {
-  const { values } = parseArgs({ args, options: { manifest: { type: 'string' }, api: { type: 'string' }, 'token-file': { type: 'string' }, state: { type: 'string' }, 'resources-root': { type: 'string' }, stage: { type: 'string', default: 'prepare' }, 'dry-run': { type: 'boolean', default: false }, only: { type: 'string' }, 'pool-bindings': { type: 'string' }, 'recover-self-tests': { type: 'string' }, 'retry-failed': { type: 'boolean', default: false }, concurrency: { type: 'string', default: '2' } } })
+  const { values } = parseArgs({ args, options: { manifest: { type: 'string' }, api: { type: 'string' }, 'token-file': { type: 'string' }, state: { type: 'string' }, 'resources-root': { type: 'string' }, stage: { type: 'string', default: 'prepare' }, 'dry-run': { type: 'boolean', default: false }, only: { type: 'string' }, 'publish-ready-basics': { type: 'boolean', default: false }, 'pool-bindings': { type: 'string' }, 'recover-self-tests': { type: 'string' }, 'retry-failed': { type: 'boolean', default: false }, concurrency: { type: 'string', default: '2' } } })
   requireThat(values.manifest, 'manifest_option_required')
   const read = (filename?: string) => filename ? JSON.parse(fs.readFileSync(filename, 'utf8')) : undefined
-  const report = await importCoursePack({ manifest: values.manifest, api: values.api, tokenFile: values['token-file'], stateFile: values.state, resourcesRoot: values['resources-root'], stage: values.stage as Stage, dryRun: values['dry-run'], only: values.only?.split(','), poolBindings: read(values['pool-bindings']), recoverSelfTests: read(values['recover-self-tests']), retryFailed: values['retry-failed'], concurrency: Number(values.concurrency) })
+  const report = await importCoursePack({ manifest: values.manifest, api: values.api, tokenFile: values['token-file'], stateFile: values.state, resourcesRoot: values['resources-root'], stage: values.stage as Stage, dryRun: values['dry-run'], only: values.only?.split(','), publishReadyBasics: values['publish-ready-basics'], poolBindings: read(values['pool-bindings']), recoverSelfTests: read(values['recover-self-tests']), retryFailed: values['retry-failed'], concurrency: Number(values.concurrency) })
   console.log(JSON.stringify(report)); return report
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

@@ -13,6 +13,8 @@ import pathlib
 import shutil
 
 from bot_runtime import BOT_IDS, load_course, model_parameters
+from text_tool_boundary import SUPPORTED_NUMBERS as TEXT_TOOL_NUMBERS
+from native_tool_boundary import SUPPORTED_NUMBERS as NATIVE_TOOL_NUMBERS
 
 MARKER = "# [IMPORTANT] Replace this line with real attack/defense code."
 PUBLIC_DATASET_HELPERS = {
@@ -88,6 +90,10 @@ def build_pair(source_root, number, role, destination, samples=20, seed=42):
     local = pathlib.Path(__file__).parent
     shutil.copyfile(local / "bot_bootstrap.py", destination / "public" / "bootstrap.py")
     shutil.copyfile(local / "bot_runtime.py", destination / "bot_runtime.py")
+    if number in TEXT_TOOL_NUMBERS:
+        shutil.copyfile(local / "text_tool_boundary.py", destination / "text_tool_boundary.py")
+    if number in NATIVE_TOOL_NUMBERS:
+        shutil.copyfile(local / "native_tool_boundary.py", destination / "native_tool_boundary.py")
     # Role backends are part of the digest as well, so helper changes invalidate calibration.
     frozen = {"number": number, "role": role, "samples": samples, "seed": seed, "sourceDigest": digest.hexdigest()}
     (destination / "frozen.json").write_text(json.dumps(frozen, indent=2) + "\n", encoding="utf8")

@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { apiGet, apiPut } from '../../lib/api'
+import { questionModuleLabel, isCurrentLibraryQuestion } from '../../lib/hallFilters'
 
 interface ReviewQuestion {
   id: string
@@ -48,7 +49,7 @@ export default function QuestionReview() {
     setError(null)
     try {
       const data = await apiGet<ReviewQuestion[]>('/admin/questions?status=review')
-      setReviews(data)
+      setReviews(data.filter(isCurrentLibraryQuestion))
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载失败')
     } finally {
@@ -65,7 +66,7 @@ export default function QuestionReview() {
     try {
       await apiPut(`/admin/questions/${q.id}`, { status: 'published' })
       showToast(`题目 ${q.id} 已通过并发布`, 'success')
-      setReviews(prev => prev.filter(item => item.id !== q.id))
+      setReviews((prev) => prev.filter((item) => item.id !== q.id))
     } catch (err) {
       showToast(err instanceof Error ? err.message : '操作失败', 'error')
     } finally {
@@ -78,7 +79,7 @@ export default function QuestionReview() {
     try {
       await apiPut(`/admin/questions/${q.id}`, { status: 'draft' })
       showToast(`题目 ${q.id} 已退回（草稿）`, 'success')
-      setReviews(prev => prev.filter(item => item.id !== q.id))
+      setReviews((prev) => prev.filter((item) => item.id !== q.id))
     } catch (err) {
       showToast(err instanceof Error ? err.message : '操作失败', 'error')
     } finally {
@@ -101,9 +102,7 @@ export default function QuestionReview() {
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>题目审核</h1>
         <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-          {loading
-            ? '加载中...'
-            : `待审核 ${reviews.length} 道题目`}
+          {loading ? '加载中...' : `待审核 ${reviews.length} 道题目`}
         </p>
       </div>
 
@@ -118,10 +117,7 @@ export default function QuestionReview() {
             padding: '10px 16px',
             borderRadius: 6,
             border: `1px solid ${toast.type === 'success' ? 'var(--success)' : 'var(--danger)'}`,
-            background:
-              toast.type === 'success'
-                ? 'rgba(72,219,128,0.12)'
-                : 'rgba(255,107,107,0.12)',
+            background: toast.type === 'success' ? 'rgba(72,219,128,0.12)' : 'rgba(255,107,107,0.12)',
             color: toast.type === 'success' ? 'var(--success)' : 'var(--danger)',
             fontSize: 13,
             maxWidth: 360,
@@ -177,9 +173,7 @@ export default function QuestionReview() {
         >
           <span style={{ fontSize: 48 }}>✅</span>
           <p style={{ marginTop: 12, fontSize: 15, fontWeight: 600 }}>暂无待审核题目</p>
-          <p style={{ marginTop: 4, fontSize: 13, color: 'var(--text-secondary)' }}>
-            所有题目已审核完毕
-          </p>
+          <p style={{ marginTop: 4, fontSize: 13, color: 'var(--text-secondary)' }}>所有题目已审核完毕</p>
           <Link
             to="/admin/questions"
             style={{
@@ -214,9 +208,7 @@ export default function QuestionReview() {
               }}
             >
               <div style={{ minWidth: 0, flex: 1 }}>
-                <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>
-                  {item.title}
-                </h3>
+                <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>{item.title}</h3>
                 <p
                   style={{
                     fontSize: 12,
@@ -228,7 +220,9 @@ export default function QuestionReview() {
                   }}
                 >
                   <span style={{ fontFamily: 'var(--font-mono)' }}>{item.id}</span>
-                  <span>模块: <strong>{item.moduleCode}</strong></span>
+                  <span>
+                    题库领域: <strong>{questionModuleLabel(item.moduleCode)}</strong>
+                  </span>
                   <span>类型: {TYPE_LABELS[item.type] ?? item.type}</span>
                   <span>难度: {DIFFICULTY_LABELS[item.difficulty] ?? item.difficulty}</span>
                   <span>分类: {item.category === 'security' ? '安全' : '基础'}</span>
@@ -259,10 +253,7 @@ export default function QuestionReview() {
                     padding: '6px 16px',
                     border: '1px solid var(--success)',
                     borderRadius: 6,
-                    background:
-                      processing === item.id
-                        ? 'rgba(72,219,128,0.04)'
-                        : 'rgba(72,219,128,0.08)',
+                    background: processing === item.id ? 'rgba(72,219,128,0.04)' : 'rgba(72,219,128,0.08)',
                     color: 'var(--success)',
                     fontSize: 13,
                     fontWeight: 500,
@@ -271,12 +262,10 @@ export default function QuestionReview() {
                     fontFamily: 'inherit',
                   }}
                   onMouseEnter={(e) => {
-                    if (processing !== item.id)
-                      e.currentTarget.style.background = 'rgba(72,219,128,0.16)'
+                    if (processing !== item.id) e.currentTarget.style.background = 'rgba(72,219,128,0.16)'
                   }}
                   onMouseLeave={(e) => {
-                    if (processing !== item.id)
-                      e.currentTarget.style.background = 'rgba(72,219,128,0.08)'
+                    if (processing !== item.id) e.currentTarget.style.background = 'rgba(72,219,128,0.08)'
                   }}
                 >
                   {processing === item.id ? '处理中...' : '通过'}
@@ -288,10 +277,7 @@ export default function QuestionReview() {
                     padding: '6px 16px',
                     border: '1px solid var(--danger)',
                     borderRadius: 6,
-                    background:
-                      processing === item.id
-                        ? 'rgba(255,107,107,0.04)'
-                        : 'rgba(255,107,107,0.08)',
+                    background: processing === item.id ? 'rgba(255,107,107,0.04)' : 'rgba(255,107,107,0.08)',
                     color: 'var(--danger)',
                     fontSize: 13,
                     fontWeight: 500,
@@ -300,12 +286,10 @@ export default function QuestionReview() {
                     fontFamily: 'inherit',
                   }}
                   onMouseEnter={(e) => {
-                    if (processing !== item.id)
-                      e.currentTarget.style.background = 'rgba(255,107,107,0.16)'
+                    if (processing !== item.id) e.currentTarget.style.background = 'rgba(255,107,107,0.16)'
                   }}
                   onMouseLeave={(e) => {
-                    if (processing !== item.id)
-                      e.currentTarget.style.background = 'rgba(255,107,107,0.08)'
+                    if (processing !== item.id) e.currentTarget.style.background = 'rgba(255,107,107,0.08)'
                   }}
                 >
                   退回

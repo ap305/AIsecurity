@@ -130,6 +130,9 @@ async function request(route: string, method = 'GET', data?: any) {
     redirect: 'error',
     headers: {
       Authorization: `Bearer ${token}`,
+      // Large synchronous ZIP work must not leave the next write reusing an
+      // idle connection whose remote close is still waiting on the event loop.
+      Connection: 'close',
       ...(data !== undefined && !multipart ? { 'Content-Type': 'application/json' } : {}),
     },
     body: data === undefined ? undefined : multipart ? data : JSON.stringify(data),

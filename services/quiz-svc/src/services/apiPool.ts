@@ -3,6 +3,34 @@ import { parseJson, RequestError, type PoolBinding, type SubmissionSnapshot } fr
 import { signScopedToken } from '../lib/auth.js'
 import { transaction } from '../lib/transaction.js'
 import crypto from 'node:crypto'
+import {waitForColdRequest} from './modelRequestPacing.js'
+import { withResponseSnapshot, type ResponseSnapshotContext } from './modelResponseSnapshot.js'
+
+export async function callPoolWithResponseSnapshot(
+  binding: PoolBinding,
+  input: any,
+  context: ResponseSnapshotContext | null | undefined,
+  observe: (source: 'upstream' | 'snapshot') => Promise<void>,
+) {
+  if (!context) return callPool(binding, input)
+  const started=Date.now()
+  return withResponseSnapshot({
+    root: process.env.EVALUATION_RESPONSE_SNAPSHOT_ROOT || '',
+    context, binding, payload: fixedModelPayload(binding, input),
+    beforeCall: () => waitForColdRequest(JSON.stringify([binding.baseUrl,binding.credentialEnv,binding.model]),
+      Number(process.env.EVALUATION_SNAPSHOT_UPSTREAM_INTERVAL_MS ?? 0)),
+    call: async () => {
+      try { return await callPool(binding, input, false, true, started+80000) }
+      catch (error) {
+        // These four new-policy tasks must not translate an unknown provider
+        // outcome into the legacy runtime's retryable 503 response.
+        if (error instanceof RequestError && error.status === 503)
+          throw new RequestError('模型服务调用结果未知，本次不产生正式成绩', 502)
+        throw error
+      }
+    }, observe,
+  })
+}
 
 export async function freezePoolBinding(id: string, kind: string): Promise<PoolBinding> {
   const pool = await prisma.apiPool.findUnique({ where: { id } })
@@ -22,6 +50,14 @@ export async function freezePoolBinding(id: string, kind: string): Promise<PoolB
 
 export function publicPool(row: any) {
   return { ...row, parameters: parseJson(row.parameters, {}) }
+}
+
+export function poolRequestTimeoutMs(parameters: PoolBinding['parameters']): number {
+  const value = parameters.requestTimeoutMs
+  if (value === undefined) return 60000
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1 || value > 300000)
+    throw new RequestError('模型请求超时必须为 1 至 300000 毫秒的正整数')
+  return value
 }
 
 export async function savePool(id: string | null, body: any, actorId: string) {
@@ -49,6 +85,7 @@ export async function savePool(id: string | null, body: any, actorId: string) {
     if (!merged.parameters || typeof merged.parameters !== 'object' || Array.isArray(merged.parameters))
       merged.parameters = {}
     const params = merged.parameters
+    poolRequestTimeoutMs(params)
     if (params.maxCalls !== undefined && (!Number.isSafeInteger(params.maxCalls) || params.maxCalls < 1))
       throw new RequestError('模型调用预算必须是正整数')
     if (params.enable_thinking !== undefined && typeof params.enable_thinking !== 'boolean')
@@ -155,13 +192,40 @@ function transportFailureReason(error: unknown, signal: AbortSignal): 'timeout' 
     : 'transport'
 }
 
-export async function callPool(binding: PoolBinding, body: any, teacher = false) {
+async function logRateLimitDiagnostic(binding: PoolBinding, response: Response) {
+  // Opt-in snapshot scopes only. Parse at most 8 KiB transiently; never log
+  // provider messages, headers containing identifiers, or response text.
+  let value: any = {}, reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+  try {
+    reader = response.body?.getReader()
+    if (reader) {
+      const chunks: Uint8Array[] = []; let bytes = 0
+      while (true) {
+        const part = await reader.read(); if (part.done) break
+        bytes += part.value.byteLength; if (bytes > 8192) break
+        chunks.push(part.value)
+      }
+      if (bytes <= 8192) value = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+    }
+  } catch { /* Diagnostics must not replace the original HTTP failure. */ }
+  finally { try { await reader?.cancel() } catch {} }
+  const message = String(value?.message ?? value?.error?.message ?? '')
+  const rateDimension = message.match(/\b(?:RPM|RPH|RPD|TPM|TPH|TPD|IPM|IPD)\b/i)?.[0].toUpperCase() ?? null
+  const retry = response.headers.get('retry-after')
+  const seconds = retry && /^\d{1,6}$/.test(retry) ? Number(retry) : null
+  console.warn(JSON.stringify({event: 'model_rate_limit_diagnostic', poolId: binding.poolId, revision: binding.revision,
+    rateDimension, retryAfterSeconds: seconds, numericProviderCode: Number.isSafeInteger(value?.code) ? value.code : null}))
+}
+
+export async function callPool(binding: PoolBinding, body: any, teacher = false, diagnoseRateLimit = false, deadlineMs?: number) {
+  const configuredTimeoutMs = poolRequestTimeoutMs(binding.parameters)
+  const timeoutMs = deadlineMs === undefined ? configuredTimeoutMs : Math.min(configuredTimeoutMs, Math.max(1,deadlineMs-Date.now()))
   const suffix = teacher ? String(binding.parameters.queryPath || '/predict') : '/chat/completions'
   if (!suffix.startsWith('/') || suffix.startsWith('//') || suffix.includes('..'))
     throw new RequestError('上游路径配置不合法')
   const headers = poolHeaders(binding)
   const payload = JSON.stringify(teacher ? body : fixedModelPayload(binding, body))
-  const signal = AbortSignal.timeout(60000)
+  const signal = AbortSignal.timeout(timeoutMs)
   let response: Response
   try {
     response = await fetch(`${binding.baseUrl}${suffix}`, {
@@ -176,6 +240,7 @@ export async function callPool(binding: PoolBinding, body: any, teacher = false)
   }
   if (!response.ok) {
     logUpstreamFailure(binding, 'http', response.status)
+    if (diagnoseRateLimit && response.status === 429) await logRateLimitDiagnostic(binding, response)
     try {
       await response.body?.cancel()
     } catch {

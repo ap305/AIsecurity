@@ -25,6 +25,15 @@ class ModelFixture(http.server.BaseHTTPRequestHandler):
         if not isinstance(payload.get('messages'), list):
             self.send_error(400)
             return
+        with self.server.fixture_lock:
+            self.server.fixture_attempts += 1
+            attempt = self.server.fixture_attempts
+        if attempt > 1000:
+            self.send_error(429)
+            return
+        if attempt <= self.server.fixture_503_count:
+            self.send_error(503)
+            return
         if number == '02':
             content = '{}'
         elif number == '03':
@@ -49,6 +58,7 @@ def main():
     parser.add_argument('--rpc', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--block-openai-import', action='store_true')
+    parser.add_argument('--inject-http503', action='store_true', help='Two explicit 503 responses per question; verify actual-attempt metrics and unchanged call budget')
     args = parser.parse_args()
     args.build, args.rpc, args.output = (p.resolve() for p in (args.build, args.rpc, args.output))
     args.output.mkdir(parents=True, exist_ok=False)
@@ -65,11 +75,16 @@ sys.meta_path.insert(0, BlockOpenAI())
     manifest = json.loads((args.build / 'manifest.json').read_text(encoding='utf8'))
     template = (args.rpc / 'worker-template.py').read_text(encoding='utf8')
     gateway = http.server.ThreadingHTTPServer(('127.0.0.1', 0), ModelFixture)
+    gateway.fixture_lock = threading.Lock()
+    gateway.fixture_attempts = 0
+    gateway.fixture_503_count = 0
     thread = threading.Thread(target=gateway.serve_forever, daemon=True)
     thread.start()
-    envelopes = []
+    envelopes, gateway_evidence = [], []
     try:
         for question in manifest['questions']:
+            gateway.fixture_attempts = 0
+            gateway.fixture_503_count = 2 if args.inject_http503 else 0
             number = question['sourceId'][1:]
             package_row = next(p for p in manifest['packages'] if p['key'] == question['packageKey'])
             package = args.build / package_row['directory']
@@ -122,6 +137,16 @@ sys.meta_path.insert(0, BlockOpenAI())
                 result = json.loads((directory / 'result.json').read_text(encoding='utf8'))
                 if result['status'] != 'completed':
                     raise AssertionError(question['sourceId'] + ': ' + result['status'])
+                if result['metrics']['modelCalls'] != gateway.fixture_attempts or not 0 < gateway.fixture_attempts <= 1000:
+                    raise AssertionError('Gateway metric must count every actual received POST against the unchanged budget')
+                if args.inject_http503 and gateway.fixture_attempts < 3:
+                    raise AssertionError('Injected failures were not followed by a real successful response')
+                if number == '03' and question['definition']['evaluation'].get('judgeRubric') == 'relative-preservation-v1':
+                    assert result['metrics']['samples'] == 40
+                    assert context['parameters']['judgePromptSha256'] == '7a72acbae45604ed6e1181374fcab78474ea0ea9783346f078c92ae065b9d522'
+                gateway_evidence.append({'question': question['sourceId'], 'receivedPostAttempts': gateway.fixture_attempts,
+                    'metricModelCalls': result['metrics']['modelCalls'], 'injected503Responses': gateway.fixture_503_count,
+                    'budget': 1000, 'realModelCalibration': False})
                 # Do not include local tokens or worker paths in the evidence list.
                 binding = {key: context[key] for key in ('submissionId', 'attemptId', 'questionVersion', 'evaluationVersion', 'phase', 'role', 'parameters')}
                 if phase == 'opponent':
@@ -138,8 +163,10 @@ sys.meta_path.insert(0, BlockOpenAI())
                 for log in logs:
                     log.close()
         (args.output / 'result-envelopes.json').write_text(json.dumps(envelopes, indent=2), encoding='utf8')
+        (args.output / 'gateway-attempts.json').write_text(json.dumps(gateway_evidence, indent=2), encoding='utf8')
         print(json.dumps({'completed': len(envelopes), 'fullEvaluationParameters': True, 'publishedGradeEntrypoint': True,
-                          'openaiSdkImportBlocked': args.block_openai_import, 'realModelCalibration': False}))
+                          'openaiSdkImportBlocked': args.block_openai_import, 'injected503PerQuestion': gateway.fixture_503_count,
+                          'everyAttemptCounted': True, 'realModelCalibration': False}))
     finally:
         gateway.shutdown()
         gateway.server_close()

@@ -327,3 +327,29 @@ test('new drafts and creation records from the earlier service still first publi
     )
   }
 })
+
+
+test('a supplied question digest rejects edits committed between client GET and save',async()=>{
+ const created=await questionService.saveQuestion('cas-client-window',body(),'admin',true)
+ const {questionUpdateDigest}=await import('../src/lib/questionUpdatePrecondition.js')
+ const expected=questionUpdateDigest(JSON.parse(JSON.stringify(created)))
+ await questionService.saveQuestion('cas-client-window',{content:'teacher edit'},'admin')
+ const before=await prisma.question.findUniqueOrThrow({where:{id:'cas-client-window'}}),audit=await prisma.auditEvent.count()
+ await assert.rejects(questionService.saveQuestion('cas-client-window',{content:'stale client overwrite',expectedQuestionDigest:expected},'admin'),(e:any)=>e.status===409)
+ assert.deepEqual(await prisma.question.findUniqueOrThrow({where:{id:'cas-client-window'}}),before)
+ assert.equal(await prisma.auditEvent.count(),audit)
+ const current=questionService.questionView(before,true)
+ const saved=await questionService.saveQuestion('cas-client-window',{content:'fresh conditional edit',expectedQuestionDigest:questionUpdateDigest(current)},'admin')
+ assert.equal(saved.content,'fresh conditional edit')
+})
+test('question digest is rechecked inside the serializable transaction even at the same timestamp',async t=>{
+ const q=await questionService.saveQuestion('cas-transaction-window',body(),'admin',true)
+ const {questionUpdateDigest}=await import('../src/lib/questionUpdatePrecondition.js');const expected=questionUpdateDigest(q)
+ const original=prisma.$transaction.bind(prisma);let edited=false
+ t.mock.method(prisma,'$transaction',async(work:any,options:any)=>{
+  if(!edited){edited=true;await prisma.question.update({where:{id:q.id},data:{content:'transaction-time teacher edit',updatedAt:q.updatedAt}})}
+  return original(work,options)
+ })
+ await assert.rejects(questionService.saveQuestion(q.id,{content:'stale overwrite',expectedQuestionDigest:expected},'admin'),(e:any)=>e.status===409)
+ assert.equal((await prisma.question.findUniqueOrThrow({where:{id:q.id}})).content,'transaction-time teacher edit')
+})

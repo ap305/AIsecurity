@@ -2,6 +2,8 @@
   "schemaVersion": 1,
   "resourceVersion": "course-v3-261012-source-35f932f",
   "sourceCodeCommit": "35f932f66553734af7d3a3c69bc33489c39fda7f",
+  "latestExportedSourceCommit": "84bfede533fc57b667f195ae78538359235e00ac",
+  "sourceRefreshDate": "2026-10-20",
   "sourceArchiveSha256": "9aae9548bb93992b766b01c2bfed53b90b8cf469dd68a669008b38154721d778",
   "localBackupManifestSha256": "51e52ce7f16b6d16ff8daf961defbb85db21305617ce64e365e8f3d39130a4c5",
   "localBackupFileCount": 2039,

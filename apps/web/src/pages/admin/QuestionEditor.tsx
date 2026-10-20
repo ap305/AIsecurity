@@ -1,4 +1,11 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import {
+  libraryTypes,
+  questionLibraryLabel,
+  questionLibraryType,
+  isCurrentLibraryQuestion,
+} from '../../lib/hallFilters'
 import { apiDelete, apiGet, apiPost, apiPostMultipart, apiPut } from '../../lib/api'
 import {
   defaultDefinition,
@@ -30,6 +37,8 @@ function newQuestion(): QuestionRecord {
   }
 }
 export default function QuestionEditor() {
+  const [params, setParams] = useSearchParams()
+  const library = params.get('library') || ''
   const [questions, setQuestions] = useState<QuestionRecord[]>([])
   const [form, setForm] = useState<QuestionRecord | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -44,7 +53,11 @@ export default function QuestionEditor() {
   const load = async () => {
     setLoading(true)
     try {
-      setQuestions((await apiGet<QuestionRecord[]>('/admin/questions')).map(normalizeQuestion))
+      setQuestions(
+        (await apiGet<QuestionRecord[]>('/admin/questions'))
+          .map(normalizeQuestion)
+          .filter(isCurrentLibraryQuestion),
+      )
       setError('')
     } catch (err) {
       setError(err instanceof Error ? err.message : '题目加载失败。')
@@ -241,14 +254,14 @@ export default function QuestionEditor() {
               />
             </label>
             <label className="prd-label">
-              所属大厅
+              题库
               <select
                 className="prd-input"
                 value={form.category}
                 onChange={(e) => patch({ category: e.target.value as HallCategory })}
               >
-                <option value="basic">基础任务大厅</option>
-                <option value="adversarial">对战大厅</option>
+                <option value="basic">基础题库</option>
+                <option value="adversarial">攻防题库</option>
               </select>
             </label>
             <label className="prd-label">
@@ -264,12 +277,8 @@ export default function QuestionEditor() {
               </select>
             </label>
             <label className="prd-label">
-              知识领域（兼容已有模块）
-              <input
-                className="prd-input"
-                value={form.moduleCode ?? 'GENERAL'}
-                onChange={(e) => patch({ moduleCode: e.target.value })}
-              />
+              题库类型
+              <div className="prd-input">{questionLibraryLabel(form)}</div>
             </label>
             <label className="prd-label">
               题号
@@ -339,7 +348,7 @@ export default function QuestionEditor() {
           <QuestionDefinitionEditor
             key={editingId ?? '__new__'}
             value={form.definition}
-            onChange={(definition) => patch({ definition })}
+            onChange={(definition) => patch({ definition, role: definition.role })}
             category={form.category as HallCategory}
             onValidityChange={setDefinitionValid}
           />
@@ -398,6 +407,21 @@ export default function QuestionEditor() {
       ) : (
         <>
           <div className="prd-toolbar">
+            <select
+              className="prd-input"
+              aria-label="按题库类型筛选"
+              value={library}
+              onChange={(e) =>
+                setParams(e.target.value ? { library: e.target.value } : {}, { replace: true })
+              }
+            >
+              <option value="">全部题库类型</option>
+              {Object.entries(libraryTypes).map(([id, label]) => (
+                <option key={id} value={id}>
+                  {label}
+                </option>
+              ))}
+            </select>
             <input
               className="prd-input"
               aria-label="搜索管理题目"
@@ -417,7 +441,7 @@ export default function QuestionEditor() {
                 <thead>
                   <tr>
                     <th>ID / 题名</th>
-                    <th>大厅 / 角色</th>
+                    <th>题库类型</th>
                     <th>状态</th>
                     <th>版本</th>
                     <th>操作</th>
@@ -425,6 +449,7 @@ export default function QuestionEditor() {
                 </thead>
                 <tbody>
                   {questions
+                    .filter((q) => !library || questionLibraryType(q) === library)
                     .filter((q) => `${q.id} ${q.title}`.toLowerCase().includes(search.toLowerCase()))
                     .map((q) => (
                       <tr key={q.id}>
@@ -433,15 +458,7 @@ export default function QuestionEditor() {
                           <br />
                           {q.title}
                         </td>
-                        <td>
-                          {q.category === 'basic'
-                            ? '基础'
-                            : q.definition.role === 'attack'
-                              ? '攻击'
-                              : q.definition.role === 'defense'
-                                ? '防御'
-                                : '角色未配置'}
-                        </td>
+                        <td>{questionLibraryLabel(q)}</td>
                         <td>{q.status}</td>
                         <td>{q.revision}</td>
                         <td>

@@ -61,7 +61,7 @@ def load_student(code_path, work_dir):
         result = types.ModuleType('student_' + role)
         result.__file__ = str(code_path)
         sys.modules[result.__name__] = result
-        exec(compile(ast.fix_missing_locations(backend), str(code_path), 'exec'), result.__dict__)
+        exec(compile(ast.unparse(ast.fix_missing_locations(backend)), str(code_path), 'exec'), result.__dict__)
         if config['number'] == '01' and role == 'defense':
             result._V3_WARMUP_STATE = weights().as_state_dict('warmup')
         cache[role] = result

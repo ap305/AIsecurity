@@ -26,6 +26,20 @@ class CourseFailure(BaseException):
         self.status, self.message = status, message
 
 
+AGENDA_TRANSPORT_POLICY = {"requestTimeoutMs": 300000, "gatewayTimeoutSeconds": 330}
+
+
+def gateway_timeout(frozen):
+    # Only publisher-frozen package policy may extend the wait. Context and
+    # student parameters cannot override it, and old packages keep their limit.
+    policy = frozen.get("transportPolicy")
+    if policy is None:
+        return 60
+    if frozen.get("scenario") != "agendabot" or policy != AGENDA_TRANSPORT_POLICY:
+        raise CourseFailure("system_error", "固定模型请求等待策略无效")
+    return policy["gatewayTimeoutSeconds"]
+
+
 def load_course(directory):
     directory = pathlib.Path(directory)
     saved = {name: sys.modules.get(name) for name in ("dataset", "attack", "defense")}
@@ -261,7 +275,7 @@ def run_context(context, directory):
         if parameters.get(key) != frozen[key]:
             raise CourseFailure("system_error", "题目参数与冻结课程不一致")
     course = load_course(root / "course")
-    gateway = None if scenario == "chatops" else Gateway(context.get("modelGateway"))
+    gateway = None if scenario == "chatops" else Gateway(context.get("modelGateway"), timeout=gateway_timeout(frozen))
     agent = None if gateway is None else gateway_agent(course, scenario, gateway)
     student = remote_function(context["student"], scenario, role)
     opponent = None

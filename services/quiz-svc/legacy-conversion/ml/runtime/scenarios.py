@@ -8,6 +8,7 @@ from contracts import (check_poison, check_cleaned, probability, MaterialContrac
 from data_access import DATA, load_split, load_patch, load_watermark
 from remote import RemoteModel, RemoteAudioAttack, RemoteImageAttack, function
 from platform_student import invoke
+from blind_detection import mixed_predictions
 
 
 def participants(context):
@@ -85,13 +86,12 @@ def audio(context, official, attack, defense):
                            for audio in audios])
     bona = test['audios'][test['labels'] == 0]
     spoof = test['audios'][test['labels'] == 1]
-    bp, sp = predict(bona), predict(spoof)
-    clean = official.all_detection_metrics(bp, sp)
     if attacker:
         attacks = [RemoteAudioAttack(attacker)]
     else:
         attacks = attack.default_pool()
-    outcomes, after_all = [], []
+    inputs = list(bona) + list(spoof)
+    batches = []
     for algorithm in attacks:
         after, valid, fidelities = [], [], []
         for index, sample in enumerate(spoof):
@@ -108,10 +108,18 @@ def audio(context, official, attack, defense):
             verdict = official.FidelityJudge().judge(sample, altered)
             if not all(np.isfinite(value) for value in verdict['fidelity'].values()):
                 verdict['valid'] = False
-            after.append(probability(model.defend({'audio': altered, 'sample_rate': 16000})['spoof_probability']))
+            after.append(altered)
             valid.append(bool(verdict['valid']))
             fidelities.append(verdict['fidelity'])
-        after = np.asarray(after)
+        start = len(inputs)
+        inputs.extend(after)
+        batches.append((start, valid, fidelities))
+    scores = mixed_predictions(context, inputs, predict, 'audio-detection')
+    bp, sp = scores[:len(bona)], scores[len(bona):len(bona) + len(spoof)]
+    clean = official.all_detection_metrics(bp, sp)
+    outcomes, after_all = [], []
+    for start, valid, fidelities in batches:
+        after = scores[start:start + len(spoof)]
         after_all.extend(after)
         aggregate = {}
         for key in ('SI_SDR', 'STOI', 'duration_ratio', 'clipping_ratio_est', 'silence_ratio_est'):
@@ -139,9 +147,8 @@ def image(context, official, attack, defense):
     attacks = [RemoteImageAttack(attacker)] if attacker else [a for _, a in attack.build_attack_pool()]
     fake = test['images'][test['labels'] == 1]
     real = test['images'][test['labels'] == 0]
-    per_attack, pooled = [], [[] for _ in detectors]
-    real_scores = [np.asarray([probability(d.predict(im)) for im in real]) for d in detectors]
-    clean_scores = [np.asarray([probability(d.predict(im)) for im in test['images']]) for d in detectors]
+    inputs = list(real) + list(test['images'])
+    batches = []
     for algorithm in attacks:
         altered, valid, ssims, psnrs = [], [], [], []
         for im in fake:
@@ -158,9 +165,19 @@ def image(context, official, attack, defense):
             altered.append(out)
             valid.append(legal)
         valid = np.asarray(valid, dtype=bool)
+        start = len(inputs)
+        inputs.extend(altered)
+        batches.append((start, valid, ssims, psnrs))
+    all_scores = [mixed_predictions(context, inputs,
+                   lambda batch, d=d: [probability(d.predict(im)) for im in batch], 'image-detection')
+                  for d in detectors]
+    real_scores = [values[:len(real)] for values in all_scores]
+    clean_scores = [values[len(real):len(real) + len(test['images'])] for values in all_scores]
+    per_attack, pooled = [], [[] for _ in detectors]
+    for start, valid, ssims, psnrs in batches:
         asrs = []
-        for index, d in enumerate(detectors):
-            scores = np.asarray([probability(d.predict(im)) for im in altered])
+        for index in range(len(detectors)):
+            scores = all_scores[index][start:start + len(fake)]
             asrs.append(official.attack_success_rate(scores, valid))
             pooled[index].extend(scores[valid])
         per_attack.append({'mean_asr': float(np.mean(asrs)), 'mean_ssim': float(np.mean(ssims)),
@@ -181,6 +198,7 @@ def image(context, official, attack, defense):
 
 
 def watermark(context, official, attack, defense):
+    from blind_watermark import evaluate_pair
     # D-05 supersedes the old exception-to-neutral fallback: execution errors are
     # unscored. Original quality-threshold fallback remains in evaluate_pair.
     def safe_student_call(fn, *args):
@@ -200,12 +218,12 @@ def watermark(context, official, attack, defense):
     attack_fn, embed_fn, detect_fn = checked_transform(attack_fn), checked_transform(embed_fn), checked_detector(detect_fn)
     # Explicitly selected pair only. Identity is a control of that same defense,
     # not an additional opponent counted by the platform.
-    clean = official.evaluate_pair(attack.identity_attack, embed_fn, detect_fn, samples, 'Id', 'candidate')
-    pair = official.evaluate_pair(attack_fn, embed_fn, detect_fn, samples, 'candidate', 'candidate')
+    clean = evaluate_pair(official, context, attack.identity_attack, embed_fn, detect_fn, samples, 'Id', 'candidate')
+    pair = evaluate_pair(official, context, attack_fn, embed_fn, detect_fn, samples, 'candidate', 'candidate')
     # Retain original matrix diagnostics for baseline calibration: attack strength included
     # the fixed null detector; defense score averaged identity and the selected attack.
     if context['phase'] == 'baseline' and context['role'] == 'attack':
-        null = official.evaluate_pair(attack_fn, defense.null_embed, defense.null_detect, samples, 'candidate', 'null')
+        null = evaluate_pair(official, context, attack_fn, defense.null_embed, defense.null_detect, samples, 'candidate', 'null')
         mean_attack_auc = (pair['auc'] + null['auc']) / 2
     else:
         mean_attack_auc = pair['auc']
@@ -247,6 +265,21 @@ def patch_detection_metrics(official, dataset, detector, samples, patch_image):
                 attack_score_base=official.attack_score_base(gain, drop),
                 attack_qualification_margin=min(gain - .4, hide - .5),
                 eligible_targets=len(eligible), evaluation_cases=len(cases), test_size=len(samples))
+
+
+def patch_classifier_metrics(context, official, model, val_clean, val_patched, pair_clean, pair_patched):
+    scores = mixed_predictions(context, val_clean + val_patched + pair_clean + pair_patched,
+                               model.predict_many, 'patch-detection')
+    values = scores[:len(val_clean) + len(val_patched)]
+    labels = np.r_[np.zeros(len(val_clean)), np.ones(len(val_patched))]
+    validation = official.tpr_fpr_tnr(labels, (values >= .5).astype(int))
+    pair_values = scores[len(values):]
+    pair_labels = np.r_[np.zeros(len(pair_clean)), np.ones(len(pair_patched))]
+    pair = official.tpr_fpr_tnr(pair_labels, (pair_values >= .5).astype(int))
+    auc = official.auroc(pair_labels, pair_values)
+    pair.update(evasion=official.evasion_rate(pair['tpr']),
+                defense_score=official.defense_score(pair['balanced_accuracy'], auc))
+    return validation, pair
 
 
 def patch(context, official, attack, defense, dataset):
@@ -293,11 +326,21 @@ def patch(context, official, attack, defense, dataset):
         baseline_patch = patches[int(rng.integers(len(patches)))]
         image, _ = dataset.apply_patch(sample['image'], ann['bbox'], baseline_patch, rng)
         val_patched.append(image)
-    values = np.asarray(model.predict_many(val_clean + val_patched))
-    values = np.asarray([probability(x) for x in values])
-    labels = np.r_[np.zeros(len(val_clean)), np.ones(len(val_patched))]
-    validation = official.tpr_fpr_tnr(labels, (values >= .5).astype(int))
-    pair = official.evaluate_matchup(patch_image, model, bundle, np.random.default_rng(43))
+    pair_clean = [sample['image'].copy() for sample in bundle['hidden_test']]
+    pair_patched = []
+    pair_rng = np.random.default_rng(43)
+    for sample in bundle['hidden_test']:
+        anns = sample['annotations']
+        if not anns:
+            pair_patched.append(sample['image'].copy())
+            continue
+        ann = anns[int(pair_rng.integers(len(anns)))]
+        image, _ = dataset.apply_patch(sample['image'], ann['bbox'], patch_image, pair_rng)
+        pair_patched.append(image)
+    # Validation and actual matchup controls share one unlabelled RPC batch.
+    # Neither call boundaries nor positions identify a clean/attacked subset.
+    validation, pair = patch_classifier_metrics(context, official, model, val_clean, val_patched,
+                                                pair_clean, pair_patched)
     result.update(defense_qualification_margin=min(.1 - validation['fpr'], validation['tpr'] - .7),
                   defense_pair_margin=min(.1 - pair['fpr'], pair['tpr'] - .7),
                   validation_fpr=validation['fpr'], validation_tpr=validation['tpr'],

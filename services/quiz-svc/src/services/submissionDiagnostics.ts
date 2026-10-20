@@ -3,6 +3,7 @@ import { prisma } from '../lib/db.js'
 import { parseJson } from '../lib/prdContract.js'
 
 export interface SubmissionDiagnostics {
+  role: 'attack' | 'defense' | null
   questionVersion: number
   evaluationVersion: string
   historicalVersion: boolean
@@ -212,6 +213,7 @@ export async function submissionDiagnostics(
     const current = byQuestion.get(row.questionId)
     const result = decode(row.result)
     const diagnostic: SubmissionDiagnostics = {
+      role: row.role === 'attack' || row.role === 'defense' ? row.role : null,
       questionVersion: row.questionVersion,
       evaluationVersion: row.evaluationVersion,
       historicalVersion:
@@ -238,6 +240,7 @@ export async function submissionDiagnostics(
     const threshold = config.baselineThreshold as number
     const algorithm = boundAlgorithm(row, bySubmission.get(row.id))
     const baseline = algorithm && decode(algorithm.baselineResult)
+    diagnostic.metrics = publicMetrics(baseline?.metrics, ['cleanGatePassed','leakedSpans','samples','utilityDrop','utilityAccuracy'])
     const measured = object(baseline?.metrics)?.[metric]
     const value = finite(measured) ? measured : null
     diagnostic.baseline = {

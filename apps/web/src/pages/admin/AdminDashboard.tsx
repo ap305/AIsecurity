@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiGet } from '../../lib/api'
+import { isCurrentLibraryQuestion } from '../../lib/hallFilters'
+import type { QuestionRecord } from '../../lib/prdApi'
 interface Stats {
   totalQuestions: number
   published: number
@@ -20,8 +22,16 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [error, setError] = useState('')
   useEffect(() => {
-    apiGet<Stats>('/admin/stats')
-      .then(setStats)
+    Promise.all([apiGet<Stats>('/admin/stats'), apiGet<QuestionRecord[]>('/admin/questions')])
+      .then(([all, rows]) => {
+        const current = rows.filter(isCurrentLibraryQuestion)
+        setStats({
+          ...all,
+          totalQuestions: current.length,
+          published: current.filter((q) => q.status === 'published').length,
+          draft: current.filter((q) => q.status === 'draft' || q.status === 'review').length,
+        })
+      })
       .catch((err) => setError(err instanceof Error ? err.message : '运行统计加载失败。'))
   }, [])
   return (
@@ -35,7 +45,7 @@ export default function AdminDashboard() {
       )}
       <div className="prd-toolbar">
         {[
-          ['题目', stats?.totalQuestions],
+          ['题库题目', stats?.totalQuestions],
           ['已发布', stats?.published],
           ['草稿', stats?.draft],
           ['提交记录', stats?.submissions],
@@ -46,6 +56,20 @@ export default function AdminDashboard() {
           </div>
         ))}
       </div>
+      <h2>题库分类</h2>
+      <div className="prd-grid">
+        {[
+          ['basic', '基础题库', '管理基础实验、算法与模型练习。'],
+          ['attack', '攻击题库', '管理攻击方题目、提交接口和评分条件。'],
+          ['defense', '防御题库', '管理防御方题目、提交接口和评分条件。'],
+        ].map(([type, title, description]) => (
+          <Link className="prd-panel" key={type} to={`/admin/questions?library=${type}`}>
+            <h3>{title}</h3>
+            <p className="prd-muted">{description}</p>
+          </Link>
+        ))}
+      </div>
+      <h2>平台管理</h2>
       <div className="prd-grid">
         {links.map(([path, title, description]) => (
           <Link className="prd-panel" key={path} to={path}>

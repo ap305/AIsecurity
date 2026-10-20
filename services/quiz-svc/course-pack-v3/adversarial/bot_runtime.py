@@ -12,11 +12,23 @@ import json
 import math
 import pathlib
 import sys
+import time
 import types
+import urllib.error
 import urllib.request
 
 
 BOT_IDS = tuple(f"{n:02}" for n in range(14, 23))
+GATEWAY_MAX_ATTEMPTS = 3
+GATEWAY_RETRY_DELAYS = (1, 2)
+GATEWAY_CLIENT_TIMEOUT_SECONDS = 90
+API_EVALUATION_VERSION = "v3-261012-api-rpc-http503-retry-v4"
+GATEWAY_TRANSPORT_POLICY = {
+    "retryStatus": 503, "maxAttempts": GATEWAY_MAX_ATTEMPTS,
+    "backoffSeconds": list(GATEWAY_RETRY_DELAYS), "clientTimeoutSeconds": GATEWAY_CLIENT_TIMEOUT_SECONDS,
+    "countEveryPostAttempt": True, "replayStudentOrToolActions": False,
+    "unchangedModelPoolAndEvaluationDeadline": True,
+}
 _ATTACK_VALUES = {
     "14": ("attacker_iban",), "15": ("attacker_email",),
     "16": ("attacker_user", "attacker_email"), "17": ("attacker_hotel",),
@@ -91,9 +103,29 @@ class Gateway:
             headers={"Authorization": "Bearer " + self.binding["token"], "Content-Type": "application/json"},
             method="POST",
         )
+        data = None
+        for attempt in range(GATEWAY_MAX_ATTEMPTS):
+            # Count actual POST attempts, including explicit 503 responses. The
+            # relay and reserveSelfTestCall independently charge every received
+            # POST against the unchanged frozen call budget. Never replay the
+            # student's attack, defense hook, or a completed tool invocation.
+            self.calls += 1
+            try:
+                with urllib.request.urlopen(request, timeout=GATEWAY_CLIENT_TIMEOUT_SECONDS) as response:
+                    data = response.read(2 * 1024 * 1024 + 1)
+                break
+            except urllib.error.HTTPError as error:
+                status = error.code
+                error.close()
+                if status != 503 or attempt + 1 == GATEWAY_MAX_ATTEMPTS:
+                    raise CourseFailure("system_error", "固定模型服务调用异常，本次不计分") from None
+                # Only a definite HTTP 503 is retryable. An unknown transport
+                # outcome, client timeout, budget rejection, or malformed 200
+                # response must not trigger another model request.
+                time.sleep(GATEWAY_RETRY_DELAYS[attempt])
+            except OSError:
+                raise CourseFailure("system_error", "固定模型服务调用异常，本次不计分") from None
         try:
-            with urllib.request.urlopen(request, timeout=90) as response:
-                data = response.read(2 * 1024 * 1024 + 1)
             if len(data) > 2 * 1024 * 1024:
                 raise ValueError("response limit")
             message = json.loads(data)["choices"][0]["message"]
@@ -101,7 +133,6 @@ class Gateway:
                 raise ValueError("empty model reply")
         except (OSError, ValueError, KeyError, TypeError, IndexError):
             raise CourseFailure("system_error", "固定模型服务调用异常，本次不计分") from None
-        self.calls += 1
         self.cache[key] = copy.deepcopy(message)
         return message
 

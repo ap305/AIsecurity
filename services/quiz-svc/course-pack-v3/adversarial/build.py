@@ -12,8 +12,17 @@ import zipfile
 import build_bots
 import build_classes
 import build_prompts
-from bot_runtime import BOT_IDS, load_course
+from bot_runtime import BOT_IDS, load_course, API_EVALUATION_VERSION, GATEWAY_TRANSPORT_POLICY
 from prompt_runtime import PROMPT_IDS
+from rankshift_reference import POLICY as CLEAN_REFERENCE_POLICY, VERSION as CLEAN_REFERENCE_VERSION, repair_reference
+from text_tool_boundary import (POLICY as TEXT_TOOL_POLICY, VERSION as TEXT_TOOL_VERSION,
+                                SUPPORTED_NUMBERS as TEXT_TOOL_NUMBERS, entrypoint_source)
+from native_tool_boundary import (POLICY as NATIVE_TOOL_POLICY, VERSION as NATIVE_TOOL_VERSION,
+                                  SUPPORTED_NUMBERS as NATIVE_TOOL_NUMBERS, entrypoint_source as native_entrypoint_source)
+from citation_reference import (POLICY as CITATION_POLICY, VERSION as CITATION_VERSION,
+                                repair_reference as repair_citation_reference, entrypoint_source as citation_entrypoint_source)
+from cumulative_reference import (POLICY as CUMULATIVE_POLICY, VERSION as CUMULATIVE_VERSION,
+                                  repair_reference as repair_cumulative_reference, entrypoint_source as cumulative_entrypoint_source)
 
 ROOT = pathlib.Path(__file__).resolve().parent
 NUMBERS = tuple(sorted((*BOT_IDS, *PROMPT_IDS, *build_classes.CLASS_IDS)))
@@ -47,13 +56,28 @@ def files_under(path):
             yield file
 
 
-def reference_source(course, number, role):
+def reference_source(course, number, role, reference_attack_config=None, *, rankshift_clean_passthrough=False):
+    if rankshift_clean_passthrough and (number != '02' or role != 'defense'):
+        raise ValueError('Empty-injection reference repair is restricted to D02')
     tree = ast.parse((course / "backend" / "code" / (role + ".py")).read_text(encoding="utf-8-sig"))
     names = build_classes.SYMBOLS.get(number, {}).get(role, ["attack" if role == "attack" else "defend"])
     nodes = [node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name in names]
     if {node.name for node in nodes} != set(names):
         raise ValueError("Official reference symbols are missing")
-    return ast.unparse(ast.Module(body=nodes, type_ignores=[])) + "\n"
+    if reference_attack_config is not None:
+        if number != "03" or role != "attack":
+            raise ValueError("Only the official A03 reference accepts this configuration")
+        configuration = build_classes.watermark_reference_config(reference_attack_config)
+        nodes[0].name = "_official_local_edit_attack"
+        nodes.extend(ast.parse("def attack(env, task, config=None):\n"
+                               "    # Frozen official algorithm parameters; public student defaults are unchanged.\n"
+                               "    return _official_local_edit_attack(env, task, config=" + repr(configuration) + ")\n").body)
+    source = ast.unparse(ast.Module(body=nodes, type_ignores=[])) + "\n"
+    if number == '27' and role == 'defense':
+        return repair_cumulative_reference(source)
+    if number == '28' and role == 'attack':
+        return repair_citation_reference(source)
+    return repair_reference(source) if rankshift_clean_passthrough else source
 
 
 def public_bundle(package, course, target):
@@ -70,16 +94,28 @@ def public_bundle(package, course, target):
         archive.writestr("平台接口资料说明.txt", notice)
 
 
-def build(source_root, output, image, bigram_checkpoint):
+def build(source_root, output, image, bigram_checkpoint, watermark_reference_config=None,
+          numbers=None, watermark_private_order_key=None, watermark_relative_judge=False,
+          rankshift_clean_passthrough=False):
+    watermark_reference_config = build_classes.watermark_reference_config(watermark_reference_config)
+    numbers = tuple(NUMBERS if numbers is None else numbers)
+    if not numbers or len(set(numbers)) != len(numbers) or any(number not in NUMBERS for number in numbers):
+        raise ValueError("Build numbers must be unique supported course numbers")
+    if watermark_reference_config is not None and "03" not in numbers:
+        raise ValueError("Watermark reference configuration requires course 03")
+    if watermark_relative_judge and "03" not in numbers:
+        raise ValueError("Relative watermark judgment requires course 03")
+    if rankshift_clean_passthrough and '02' not in numbers:
+        raise ValueError('Empty-injection reference repair requires course 02')
     source_root, output = pathlib.Path(source_root), pathlib.Path(output)
     if output.exists() and any(output.iterdir()):
         raise ValueError("Build output must be empty; published packages cannot be overwritten")
     output.mkdir(parents=True, exist_ok=True)
     manifest = {"schemaVersion": 1, "packId": PACK_ID, "packages": [], "questions": []}
     pools = []
-    for number in NUMBERS:
+    for number in numbers:
         pair_parameters = pair_digest = None
-        private_order_key = secrets.token_hex(32) if number == '03' else None
+        private_order_key = (watermark_private_order_key or secrets.token_hex(32)) if number == '03' else None
         courses = {role: next((source_root / "题目" / "对抗").glob(prefix + number + "-*"))
                    for role, prefix in (("attack", "A"), ("defense", "D"))}
         references = {}
@@ -87,7 +123,13 @@ def build(source_root, output, image, bigram_checkpoint):
             source_id = ("A" if role == "attack" else "D") + number
             path = output / "references" / (source_id + ".py")
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(reference_source(course, number, role), encoding="utf8")
+            reference_config = watermark_reference_config if number == "03" and role == "attack" else None
+            reference = reference_source(course, number, role, reference_config,
+                rankshift_clean_passthrough=rankshift_clean_passthrough and number == '02' and role == 'defense')
+            if (number, role) in (('28', 'attack'), ('27', 'defense')):
+                path.write_bytes(reference.encode('utf8'))
+            else:
+                path.write_text(reference, encoding="utf8")
             references[role] = {"codePath": path.relative_to(output).as_posix(), "codeSha256": sha(path)}
         for role, course in courses.items():
             problem = json.loads((course / "problem.json").read_text(encoding="utf-8-sig"))
@@ -99,11 +141,21 @@ def build(source_root, output, image, bigram_checkpoint):
                 built, runtime = build_prompts.build_pair(source_root, number, role, package), "prompt_runtime"
             else:
                 built, runtime = build_classes.build_pair(source_root, number, role, package,
-                                  bigram_checkpoint=bigram_checkpoint, private_order_key=private_order_key), "class_runtime"
+                                  bigram_checkpoint=bigram_checkpoint, private_order_key=private_order_key,
+                                  reference_attack_config=watermark_reference_config if number == "03" else None,
+                                  relative_watermark_judge=watermark_relative_judge and number == "03"), "class_runtime"
             if pair_parameters is not None and (pair_parameters != built["modelParameters"] or pair_digest != built["frozen"]["sourceDigest"]):
                 raise ValueError("The paired A/D courses have different frozen logic or model parameters")
             pair_parameters, pair_digest = built["modelParameters"], built["frozen"]["sourceDigest"]
-            (package / "grade.py").write_text("import sys\nfrom " + runtime + " import main\nmain(sys.argv[1],sys.argv[2])\n", encoding="utf8")
+            entrypoint = (cumulative_entrypoint_source(number) if number == '27' else
+                          citation_entrypoint_source(number) if number == '28' else
+                          native_entrypoint_source(number) if number in NATIVE_TOOL_NUMBERS else
+                          entrypoint_source(number) if number in TEXT_TOOL_NUMBERS else
+                          "import sys\nfrom " + runtime + " import main\nmain(sys.argv[1],sys.argv[2])\n")
+            if number in (*TEXT_TOOL_NUMBERS, *NATIVE_TOOL_NUMBERS, '27', '28'):
+                (package / "grade.py").write_bytes(entrypoint.encode("utf8"))
+            else:
+                (package / "grade.py").write_text(entrypoint, encoding="utf8")
             environment = {
                 "schemaVersion": 1, "protocol": "platform-rpc-v1", "name": problem["title"] + " · " + role,
                 "image": image, "entrypoint": "grade.py", "phases": ["baseline", "opponent"], "network": "gateway",
@@ -129,6 +181,23 @@ def build(source_root, output, image, bigram_checkpoint):
             prefix = ("> 平台提交：在线填写 `blank.py`，无需上传模型参数。固定评测模型由全局API池配置，学生程序在独立worker执行。\n\n"
                       "**平台计分规则**：先满足题目硬门槛及官方参考实测基线（包含等于），再与已入池学生对手真实对抗。最终成绩为击败对手数/有效对手数；无对手为100%，正常失败计入分母，异常或未过基线不计分。下方原题0–100分仅作算法指标说明。\n\n"
                       "**本题配对指标**：" + note + "\n\n")
+            reference_calibration = None
+            judge_clarification = None
+            if number == "03" and watermark_reference_config is not None:
+                reference_calibration = {"algorithm": "LocalEditAttack", "config": watermark_reference_config,
+                    "reason": "Official algorithm parameter calibration for the real model quality judge; original hard gates and student defaults are unchanged.",
+                    "semanticSimilarityThreshold": 0.85, "validTextRatioThreshold": 0.95,
+                    "requiresFreshMeasuredEvidence": True}
+                prefix += ("**官方参考参数校准**：LocalEditAttack采用 " + json.dumps(watermark_reference_config, ensure_ascii=False) +
+                           "；原语义相似度≥0.85、有效文本比例≥0.95等硬门槛及学生自写算法接口保持不变。此配置须经固定模型重新实测后发布；零参考成功率不代表正常失败可以获胜。\n\n")
+            if number == "03" and watermark_relative_judge:
+                judge_clarification = {"rubric": built["frozen"]["judgeRubric"], "promptSha256": built["frozen"]["judgePromptSha256"],
+                    "userDecision": "采纳澄清并全量重校准", "modelConstraint": "Continue using the existing Qwen/Qwen3-8B pool and provider only.",
+                    "change": "Append relative-preservation clarification to the original comparison prompt only.",
+                    "retained": ["overall-or-five-dimension-mean parser", "40 fixed samples", "semantic similarity >= 0.85",
+                                 "valid text ratio >= 0.95", "original single-text quality prompt", "original defense hard gates"],
+                    "requiresFreshMeasuredEvidence": True}
+                prefix += ("**已确认的裁判澄清**：比较候选相对原文保留了多少信息，只扣除攻击新增的事实改变、含义损失、无关添加、遗漏或流畅度退化；原文自身已有缺陷不作为攻击损伤。仍使用原8B模型、40条样本及全部原硬门槛，逐字原文仅作控制实验，不是最终攻击参考。\n\n")
             pool_key = PACK_ID + "-API-" + number
             parameters = {**built["frozen"], "maxModelCalls": 1000}
             effective_samples = built["frozen"]["samples"] // 2 if number == "08" else built["frozen"]["samples"]
@@ -145,7 +214,7 @@ def build(source_root, output, image, bigram_checkpoint):
                 floor_reason = "One success in the fixed effective sample count; a conservative positive lower bound, only for an exactly zero reference."
             definition = {"kind": "agent", "weights": {"enabled": False, "required": False, "extensions": [".pt"], "maxBytes": 1048576},
                           "teacherApi": {"enabled": False}, "llm": {"enabled": True, "poolId": "$llm"},
-                          "evaluation": {"version": "v3-261012-api-rpc-v1", "timeoutMs": 3600000, "maxScore": 100,
+                          "evaluation": {"version": CUMULATIVE_VERSION if number == '27' else CITATION_VERSION if number == '28' else NATIVE_TOOL_VERSION if number in NATIVE_TOOL_NUMBERS else TEXT_TOOL_VERSION if number in TEXT_TOOL_NUMBERS else CLEAN_REFERENCE_VERSION if rankshift_clean_passthrough and number == '02' else API_EVALUATION_VERSION, "timeoutMs": 3600000, "maxScore": 100,
                                          "baselineMetric": "qualificationMetric", "baselineThreshold": None,
                                          "successMetric": "successMetric", "successThreshold": None, "repetitions": 1, **parameters}}
             manifest["questions"].append({"id": question_id, "sourceId": source_id, "title": problem["title"] + ("（攻击）" if role == "attack" else "（防御）"),
@@ -153,10 +222,25 @@ def build(source_root, output, image, bigram_checkpoint):
                 "scenarioId": PACK_ID + "-" + number, "role": role, "content": prefix + content,
                 "answerTemplate": (course / "student" / "blank.py").read_text(encoding="utf-8-sig"), "definition": definition,
                 "packageKey": source_id, "poolKey": pool_key, "requiresCalibration": True,
+                "gatewayTransportPolicy": dict(GATEWAY_TRANSPORT_POLICY),
                 "minimumPositiveSuccessThreshold": positive_floor, "minimumPositiveSuccessReason": floor_reason,
                 "effectiveSampleCount": effective_samples,
                 "selfTest": {**references[role], "opponent": references["defense" if role == "attack" else "attack"]},
                 "resources": [{"sourcePath": file.relative_to(output).as_posix(), "filename": file.name, "sha256": sha(file)} for file in files_under(resources)]})
+            if reference_calibration:
+                manifest["questions"][-1]["officialReferenceConfiguration"] = reference_calibration
+            if judge_clarification:
+                manifest["questions"][-1]["judgeClarification"] = judge_clarification
+            if rankshift_clean_passthrough and number == '02':
+                manifest['questions'][-1]['officialReferenceRepair'] = dict(CLEAN_REFERENCE_POLICY)
+            if number in TEXT_TOOL_NUMBERS:
+                manifest['questions'][-1]['textToolProtocolBoundary'] = dict(TEXT_TOOL_POLICY)
+            if number in NATIVE_TOOL_NUMBERS:
+                manifest['questions'][-1]['nativeToolProtocolBoundary'] = dict(NATIVE_TOOL_POLICY)
+            if number == '28':
+                manifest['questions'][-1]['citationReferenceRepair'] = dict(CITATION_POLICY)
+            if number == '27':
+                manifest['questions'][-1]['cumulativeReferenceRepair'] = dict(CUMULATIVE_POLICY)
             manifest["packages"].append({"key": source_id, "directory": package.relative_to(output).as_posix(),
                 "files": [{"path": file.relative_to(package).as_posix(), "sha256": sha(file)} for file in files_under(package)]})
             if role == "attack":
@@ -175,6 +259,15 @@ if __name__ == "__main__":
     parser.add_argument("--output", required=True)
     parser.add_argument("--image", required=True)
     parser.add_argument("--bigram", required=True)
+    parser.add_argument("--watermark-reference-config", type=pathlib.Path,
+                        help="Explicit JSON file with synonym_ratio, swap_ratio, delete_ratio and seed; omitted preserves author defaults")
+    parser.add_argument("--watermark-relative-judge", action="store_true",
+                        help="Apply the approved relative-preservation clarification to A03/D03 only; requires fresh real 8B calibration")
+    parser.add_argument('--rankshift-clean-passthrough', action='store_true',
+                        help='Explicit D02 empty-injection reference repair; both 02 questions require fresh real calibration')
     args = parser.parse_args()
-    result = build(args.source, args.output, args.image, args.bigram)
+    configuration = json.loads(args.watermark_reference_config.read_text(encoding="utf-8-sig")) if args.watermark_reference_config else None
+    result = build(args.source, args.output, args.image, args.bigram, watermark_reference_config=configuration,
+                   watermark_relative_judge=args.watermark_relative_judge,
+                   rankshift_clean_passthrough=args.rankshift_clean_passthrough)
     print(json.dumps({"questions": len(result["questions"]), "packages": len(result["packages"]), "requiresCalibration": True}))

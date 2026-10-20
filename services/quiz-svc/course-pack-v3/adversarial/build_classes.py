@@ -4,6 +4,7 @@ import ast
 import hashlib
 import io
 import json
+import math
 import pathlib
 import secrets
 import shutil
@@ -11,12 +12,32 @@ import sys
 
 from bot_runtime import load_course
 from build_bots import MARKER, _node_names
+from class_runtime import WATERMARK_RELATIVE_JUDGE_ID, WATERMARK_RELATIVE_JUDGE_APPENDIX
 
 CLASS_IDS = ("03", "27", "28")
 TRUSTED_BIGRAM_SHA256 = "c3e368cc510ffc00f85202abfd788974fb06a67c527cac7c8227f201d75b7d6d"
 SYMBOLS = {"03": {"attack": ["attack"], "defense": ["WatermarkDefense", "WatermarkDetector"]},
            "27": {"attack": ["AdaptiveRolePlayExtraction"], "defense": ["GuardedPromptWithLeakFilter"]},
            "28": {"attack": ["EnumerativeCitationProbe"], "defense": ["SecretSpanRetrievalFilter"]}}
+
+
+def watermark_reference_config(value):
+    """Validate an explicit official-algorithm configuration, never student defaults."""
+    if value is None:
+        return None
+    fields = {"synonym_ratio", "swap_ratio", "delete_ratio", "seed"}
+    if not isinstance(value, dict) or set(value) != fields:
+        raise ValueError("Watermark reference configuration requires exactly three ratios and seed")
+    result = {}
+    for field in ("synonym_ratio", "swap_ratio", "delete_ratio"):
+        ratio = value[field]
+        if isinstance(ratio, bool) or not isinstance(ratio, (int, float)) or not math.isfinite(ratio) or not 0 <= ratio <= 1:
+            raise ValueError("Reference ratios must be finite numbers between zero and one")
+        result[field] = float(ratio)
+    if type(value["seed"]) is not int or not 0 <= value["seed"] < 2 ** 32:
+        raise ValueError("Reference seed must be a nonnegative 32-bit integer")
+    result["seed"] = value["seed"]
+    return result
 
 
 def public_dataset(source, number):
@@ -88,9 +109,15 @@ def backend_source(code_dir, role, number):
     return ast.unparse(ast.fix_missing_locations(tree)) + "\n"
 
 
-def build_pair(source_root, number, role, destination, samples=None, seed=42, bigram_checkpoint=None, private_order_key=None):
+def build_pair(source_root, number, role, destination, samples=None, seed=42, bigram_checkpoint=None, private_order_key=None,
+               reference_attack_config=None, relative_watermark_judge=False):
     if number not in CLASS_IDS or role not in ("attack", "defense"):
         raise ValueError("Unsupported class course")
+    reference_attack_config = watermark_reference_config(reference_attack_config)
+    if reference_attack_config is not None and number != "03":
+        raise ValueError("Reference attack configuration is only supported by watermark course 03")
+    if relative_watermark_judge and number != "03":
+        raise ValueError("The relative-preservation clarification only applies to course 03")
     prefix = "A" if role == "attack" else "D"
     candidates = list((pathlib.Path(source_root) / "题目" / "对抗").glob(prefix + number + "-*"))
     if len(candidates) != 1:
@@ -107,7 +134,15 @@ def build_pair(source_root, number, role, destination, samples=None, seed=42, bi
         digest.update(name.encode() + b"\0" + data)
         (destination / "course" / name).write_bytes(data)
     course = load_course(destination / "course")
+    judge_policy = {}
     if number == "03":
+        if relative_watermark_judge:
+            prompt = course._JUDGE_SYSTEM + " " + WATERMARK_RELATIVE_JUDGE_APPENDIX
+            judge_policy = {"judgeRubric": WATERMARK_RELATIVE_JUDGE_ID,
+                            "judgePromptSha256": hashlib.sha256(prompt.encode("utf8")).hexdigest()}
+            digest.update(b'judgePolicy\0' + json.dumps(judge_policy, sort_keys=True, separators=(',', ':')).encode())
+        if reference_attack_config is not None:
+            digest.update(b'referenceAttackConfig\0' + json.dumps(reference_attack_config, sort_keys=True, separators=(',', ':')).encode())
         private_order_key = private_order_key or secrets.token_hex(32)
         if len(private_order_key) != 64 or any(c not in '0123456789abcdef' for c in private_order_key):
             raise ValueError('A private 256-bit detection ordering key is required')
@@ -151,9 +186,15 @@ def build_pair(source_root, number, role, destination, samples=None, seed=42, bi
     shutil.copyfile(local / "bot_bootstrap.py", destination / "public" / "bootstrap.py")
     for name in ("bot_runtime.py", "class_runtime.py"):
         shutil.copyfile(local / name, destination / name)
+    if number == '28':
+        shutil.copyfile(local / 'citation_reference.py', destination / 'citation_reference.py')
+    if number == '27':
+        shutil.copyfile(local / 'cumulative_reference.py', destination / 'cumulative_reference.py')
     samples = samples if samples is not None else {"03": 40, "27": 6, "28": 30}[number]
     frozen = {"number": number, "role": role, "samples": samples, "seed": seed,
-              "budget": {"03": 0, "27": 8, "28": 20}[number], "sourceDigest": digest.hexdigest()}
+              "budget": {"03": 0, "27": 8, "28": 20}[number], "sourceDigest": digest.hexdigest(), **judge_policy}
+    if reference_attack_config is not None:
+        frozen["referenceAttackConfig"] = reference_attack_config
     (destination / "frozen.json").write_text(json.dumps(frozen, indent=2) + "\n", encoding="utf8")
     params = {"temperature": 0, "seed": seed, "max_tokens": 128 if number == "03" else 1024}
     (destination / "model-parameters.json").write_text(json.dumps(params, indent=2) + "\n", encoding="utf8")

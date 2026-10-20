@@ -4,7 +4,8 @@ import crypto from 'node:crypto'
 import { Router } from 'express'
 import multer from 'multer'
 import { bearerToken, readScopedToken, requireAdminMw, signScopedToken } from '../lib/auth.js'
-import { freezePoolBinding, callPool } from '../services/apiPool.js'
+import { freezePoolBinding, callPoolWithResponseSnapshot } from '../services/apiPool.js'
+import { responseSnapshotContext, type ResponseSnapshotContext } from '../services/modelResponseSnapshot.js'
 import { normalizeCategory, normalizeDefinition, type PoolBinding } from '../lib/prdContract.js'
 import { selfTestConfigurationKey } from '../lib/selfTestContract.js'
 import {
@@ -43,6 +44,9 @@ export interface PackageSelfTest {
   result?: ComposeEvaluationResult
   calls?: number
   poolBinding?: PoolBinding
+  responseSnapshot?: ResponseSnapshotContext
+  upstreamCalls?: number
+  responseSnapshotHits?: number
 }
 function testDirectory(packageId: string, root = EVALUATION_PACKAGE_ROOT): string {
   return path.join(packageDirectory(packageId, root), '_self-tests')
@@ -59,8 +63,8 @@ function saveTest(test: PackageSelfTest): void {
   fs.writeFileSync(tmp, JSON.stringify(test), { flag: 'wx', mode: 0o600 })
   fs.renameSync(tmp, target)
 }
-function publicTest(test: PackageSelfTest): Omit<PackageSelfTest, 'poolBinding'> {
-  const { poolBinding: _binding, ...publicData } = test
+function publicTest(test: PackageSelfTest): Omit<PackageSelfTest, 'poolBinding' | 'responseSnapshot'> {
+  const { poolBinding: _binding, responseSnapshot: _snapshot, ...publicData } = test
   return publicData
 }
 async function reserveSelfTestCall(
@@ -68,7 +72,8 @@ async function reserveSelfTestCall(
   testId: string,
   digest: string,
   expectedPool: PoolBinding,
-): Promise<PoolBinding> {
+  source?: 'upstream' | 'snapshot',
+): Promise<{ binding: PoolBinding; snapshot?: ResponseSnapshotContext }> {
   const file = testFile(packageId, testId),
     lock = `${file}.lock`
   let owned = false
@@ -94,12 +99,18 @@ async function reserveSelfTestCall(
       record.poolBinding.revision !== expectedPool.revision
     )
       throw new PackageValidationError('自测调用资格失效')
-    const maxCalls = Number(record.poolBinding.parameters.maxCalls ?? 32)
-    if ((record.calls ?? 0) >= Math.min(1000, maxCalls))
-      throw new PackageValidationError('自测模型调用额度已用完')
-    record.calls = (record.calls ?? 0) + 1
+    if (source) {
+      if (!record.responseSnapshot) throw new PackageValidationError('自测快照配置失效')
+      if (source === 'upstream') record.upstreamCalls = (record.upstreamCalls ?? 0) + 1
+      else record.responseSnapshotHits = (record.responseSnapshotHits ?? 0) + 1
+    } else {
+      const maxCalls = Number(record.poolBinding.parameters.maxCalls ?? 32)
+      if ((record.calls ?? 0) >= Math.min(1000, maxCalls))
+        throw new PackageValidationError('自测模型调用额度已用完')
+      record.calls = (record.calls ?? 0) + 1
+    }
     saveTest(record)
-    return record.poolBinding
+    return { binding: record.poolBinding, snapshot: record.responseSnapshot }
   } finally {
     fs.rmSync(lock, { force: true })
   }
@@ -240,6 +251,8 @@ router.post('/admin/evaluation-packages/:id/self-tests', async (req, res) => {
       status: 'queued',
       phase: phase as ComposeEvaluationInput['phase'],
       calls: 0,
+      ...(definition.llm.enabled && responseSnapshotContext(definition, descriptor.digest)
+        ? { responseSnapshot: responseSnapshotContext(definition, descriptor.digest)! } : {}),
     }
     const opponentBody = body.opponent as { code?: unknown; weightFixture?: unknown } | undefined
     let opponentFilePath: string | null = null
@@ -318,9 +331,12 @@ router.post('/admin/evaluation-packages/:id/self-tests', async (req, res) => {
       record.status = 'completed'
       record.completedAt = new Date().toISOString()
       try {
-        record.calls =
-          (JSON.parse(fs.readFileSync(testFile(record.packageId, record.id), 'utf8')) as PackageSelfTest)
-            .calls ?? 0
+        const current = JSON.parse(fs.readFileSync(testFile(record.packageId, record.id), 'utf8')) as PackageSelfTest
+        record.calls = current.calls ?? 0
+        if (record.responseSnapshot) {
+          record.upstreamCalls = current.upstreamCalls ?? 0
+          record.responseSnapshotHits = current.responseSnapshotHits ?? 0
+        }
       } catch {
         /* preserve conservative zero when evidence is lost */
       }
@@ -358,13 +374,16 @@ router.post('/evaluation-self-test-gateway/:testId/chat/completions', async (req
       return res.status(403).json({ code: 40300, message: '自测访问资格失效', data: null })
     const descriptor = await getEvaluationPackage(token.packageId)
     if (descriptor.digest !== token.packageDigest) throw new PackageValidationError('环境包版本已失效')
-    const binding = await reserveSelfTestCall(
+    const reserved = await reserveSelfTestCall(
       token.packageId,
       token.testId,
       token.packageDigest,
       token.poolBinding as PoolBinding,
     )
-    res.json(await callPool(binding, req.body))
+    res.json(await callPoolWithResponseSnapshot(reserved.binding, req.body, reserved.snapshot, async source => {
+      await reserveSelfTestCall(token.packageId as string, token.testId as string, token.packageDigest as string, token.poolBinding as PoolBinding, source)
+      res.setHeader('X-Model-Response-Source', source)
+    }))
   } catch (error) {
     const status =
       typeof (error as { status?: unknown })?.status === 'number' ? (error as { status: number }).status : 400

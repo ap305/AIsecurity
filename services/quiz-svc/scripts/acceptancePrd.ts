@@ -710,7 +710,13 @@ async function main() {
         'def attack():\n    raise RuntimeError("acceptance error")\n',
       )
       assert.equal(result.score, null)
-      assert.ok(['error', 'student_error'].includes(result.status), `Unexpected status ${result.status}`)
+      assert.equal(result.status, 'failed')
+      assert.equal(result.result.evaluationStatus, 'student_error')
+      assert.equal(result.result.counted, false)
+      const tasks = await request('/admin/evaluation-tasks', { actor: need(admin, 'admin') })
+      const task = tasks.find((row: Json) => row.submissionId === result.id)
+      assert.equal(task.state, 'completed')
+      assert.equal(task.attempts, 1)
       const score = await arenaScore('attack', a, 100, 1)
       assert.equal(score.activeSubmissionId, prior.id)
       return {

@@ -1,6 +1,6 @@
 # Resource version for the course v3 source snapshot
 
-This code snapshot includes the 77-question adapter from source commit `35f932f66553734af7d3a3c69bc33489c39fda7f`. Its matching local resource version is `course-v3-261012-source-35f932f`. The machine-readable identifier and hashes are in [resource-version.json](resource-version.json). The sanitized Git commit is recorded separately in the local backup after it exists; it is not embedded in its own commit.
+The immutable resource backup was created against the 77-question adapter at source commit `35f932f66553734af7d3a3c69bc33489c39fda7f`. Its resource version remains `course-v3-261012-source-35f932f`. The code has since been refreshed from source commit `84bfede533fc57b667f195ae78538359235e00ac`; see [SOURCE_REFRESH_20261020.md](SOURCE_REFRESH_20261020.md). This source update does not revise the resource backup, hashes or calibration evidence. The machine-readable identifiers are in [resource-version.json](resource-version.json).
 
 ## Local backup and verification
 

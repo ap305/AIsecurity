@@ -139,6 +139,25 @@ def evaluate(course, number, role, phase, student, opponent, parameters, gateway
     samples = fixed_samples(course, number, parameters["samples"])
     judge = Judge(gateway)
     refs = references_02(course, samples, judge) if number == "02" else None
+    if number == "02" and phase == "baseline":
+        # Original test.py:668-697 separates qualification anchors from the
+        # actual opponent: attack vs NoDefense; defense vs ScoreMax + ScoreMin.
+        if role == "attack":
+            row = evaluate_pair(course, number, samples, student, course._prompt_nodefense, judge, refs)
+            row.update(qualificationMetric=row["rankShift"], successMetric=row["attackMetric"], samples=parameters["samples"])
+            return row
+        maximum = evaluate_pair(course, number, samples, course.reference_attack, student, judge, refs)
+        minimum = evaluate_pair(course, number, samples, course._scoremin_payload, student, judge, refs)
+        clean = evaluate_pair(course, number, samples, course._noop_payload, student, judge, refs)
+        mean_shift = round(0.5 * maximum["rankShift"] + 0.5 * minimum["rankShift"], 4)
+        passed = clean["rankShift"] <= course.CLEAN_GATE_RANKSHIFT and clean["validRate"] >= course.CLEAN_GATE_VALID_RATE
+        own = 1.0 - mean_shift / 100.0
+        return {"attackMetric": mean_shift / 100.0, "defenseMetric": own,
+                "rankShift": mean_shift, "validRate": min(maximum["validRate"], minimum["validRate"]),
+                "rankShiftScoreMax": maximum["rankShift"], "rankShiftScoreMin": minimum["rankShift"],
+                "cleanRankShift": clean["rankShift"], "cleanValidRate": clean["validRate"],
+                "cleanGatePassed": passed, "qualificationMetric": 100.0 - mean_shift if passed else -1.0,
+                "successMetric": own, "samples": parameters["samples"]}
     attack, defense = (student, course.reference_defense) if role == "attack" else (course.reference_attack, student)
     if phase == "opponent":
         if opponent is None:

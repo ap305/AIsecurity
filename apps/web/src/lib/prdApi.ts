@@ -106,6 +106,7 @@ export interface SubmissionRecord {
   diagnostics?: SubmissionDiagnostics | null
 }
 export interface SubmissionDiagnostics {
+  role: 'attack' | 'defense' | null
   questionVersion: number
   evaluationVersion: string
   historicalVersion: boolean
@@ -434,17 +435,22 @@ export function submitMaterials(
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest()
     request.open('POST', '/api/submissions')
+    request.timeout = 600000
     const token = getAuthToken()
     if (token) request.setRequestHeader('Authorization', `Bearer ${token}`)
     request.upload.onprogress = (event) => {
       if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100))
     }
     request.onerror = () => reject(new Error('提交连接中断，可重新点击提交重试；系统会避免重复受理。'))
+    request.ontimeout = () =>
+      reject(new Error('上传或受理等待超时，请先检查提交记录，再使用同一份材料重试。'))
     request.onload = () => {
       try {
         const response = JSON.parse(request.responseText)
         if (request.status < 200 || request.status >= 300 || response.code !== 0)
           throw new Error(response.message || '提交失败')
+        if (!response.data || typeof response.data.id !== 'string' || !response.data.id.trim())
+          throw new Error('提交响应缺少受理编号，请检查提交记录后重试。')
         resolve(response.data as SubmissionRecord)
       } catch (error) {
         reject(error instanceof Error ? error : new Error('提交响应无法解析。'))

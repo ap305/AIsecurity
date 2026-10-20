@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from '@prisma/client'
 import { prisma } from '../lib/db.js'
 import { runComposeEvaluation } from './composeJudge.js'
+import type { ComposeEvaluationResult } from './composeJudge.js'
 import { RequestError } from '../lib/prdContract.js'
 import {
   aggregateArenaResults,
@@ -34,6 +35,23 @@ export function configureArenaRuntime(config: Partial<ArenaRuntime>): void {
 function safeError(error: unknown): string {
   console.error('[arena] Evaluation failed:', error instanceof Error ? error.name : 'unknown')
   return '攻防评测未正常完成，旧有效算法和成绩已保留，请查看任务状态或联系管理员'
+}
+
+class ArenaExecutionFailure extends Error {
+  constructor(readonly output: ComposeEvaluationResult, readonly phase: 'baseline' | 'opponent') {
+    super('Arena execution did not complete')
+  }
+}
+function failureResult(error: unknown): Record<string, unknown> {
+  if (!(error instanceof ArenaExecutionFailure)) return {counted:false, publicMessage:safeError(error)}
+  const status=error.output.status
+  const messages = {
+    student_error:'代码或模型运行失败，请核对题目接口、依赖及模型结构后重新提交；本次不计分，原有效成绩保留',
+    timeout:'评测超时，本次不计分，原有效成绩保留',
+    system_error:'评测环境异常，本次不计分，原有效成绩保留；请联系管理员查看任务状态',
+    completed:'评测结果无效，本次不计分，原有效成绩保留',
+  }
+  return {counted:false,evaluationStatus:status,failedPhase:error.phase,cleanupStatus:error.output.cleanupStatus,publicMessage:messages[status]}
 }
 
 async function serializable<T>(work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
@@ -257,7 +275,7 @@ async function processArenaEvaluation(jobId: string): Promise<void> {
             typeof config.baselineWeightFixture === 'string' ? config.baselineWeightFixture : undefined,
         },
       })
-      if (baseline.status !== 'completed') throw new Error('基线评测未正常完成')
+      if (baseline.status !== 'completed') throw new ArenaExecutionFailure(baseline, 'baseline')
       const qualified = baselineQualified(baseline.metrics, config)
       await prisma.arenaAlgorithm.updateMany({
         where: { id: task.algorithmId, status: 'candidate' },
@@ -328,7 +346,7 @@ async function processArenaEvaluation(jobId: string): Promise<void> {
         },
       })
       if (result.status !== 'completed' || typeof result.success !== 'boolean')
-        throw new Error('对手评测未正常完成')
+        throw new ArenaExecutionFailure(result, 'opponent')
       pairResults.push({
         opponentId: opponent.algorithm.id,
         status: result.status,
@@ -445,11 +463,9 @@ async function processArenaEvaluation(jobId: string): Promise<void> {
       })
     if (outcome === 'retry') void drainArenaRecomputations()
   } catch (error) {
-    await finishWithoutScore(jobId, task.attempts, 'error', {
-      counted: false,
-      publicMessage: safeError(error),
-    })
-    if (task.kind === 'recompute' && task.attempts < 3) {
+    const failure = failureResult(error)
+    await finishWithoutScore(jobId, task.attempts, 'error', failure)
+    if (task.kind === 'recompute' && task.attempts < 3 && failure.evaluationStatus !== 'student_error') {
       await prisma.arenaEvaluation.updateMany({
         where: { id: jobId, status: 'error', attempts: task.attempts },
         data: { status: 'queued' },

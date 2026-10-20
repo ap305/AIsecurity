@@ -1,5 +1,6 @@
 import copy
 import importlib.util
+import io
 import json
 import pathlib
 import sys
@@ -69,6 +70,74 @@ class BotConversionTests(unittest.TestCase):
                 sys.modules.pop("dataset", None)
                 if old is not None:
                     sys.modules["dataset"] = old
+
+    def test_agenda_only_build_freezes_transport_without_changing_inference_or_deadline(self):
+        output = self.output / "agenda-only"
+        records = build.build(HERE / "sources", HERE / "sources/questions.json", output, scenarios=["agendabot"])
+        self.assertEqual({q["questionId"] for q in records}, {"AGENDABOT-AD-ATK", "AGENDABOT-AD-DEF"})
+        self.assertEqual({p.name for p in output.iterdir()}, {"agendabot", "metadata.json"})
+        policy = {"requestTimeoutMs": 300000, "gatewayTimeoutSeconds": 330}
+        frozen = json.loads((output / "agendabot/package/frozen.json").read_text(encoding="utf8"))
+        self.assertEqual(frozen["transportPolicy"], policy)
+        course = self.course("agendabot")
+        for question in records:
+            self.assertEqual(question["provenance"]["transportPolicy"], policy)
+            self.assertEqual(question["definition"]["evaluation"]["timeoutMs"], 2700000)
+            self.assertEqual(question["poolSpec"]["parameters"], {
+                "temperature": 0, "seed": 42, "max_tokens": 10000,
+                "systemPrompt": course.SYSTEM_PROMPT, "tools": course.TOOLS, "tool_choice": "auto",
+                "enable_thinking": False, "maxCalls": 500, "requestTimeoutMs": 300000})
+        for question in self.metadata:
+            if question["scenarioId"] != "agendabot":
+                self.assertNotIn("requestTimeoutMs", question.get("poolSpec", {}).get("parameters", {}))
+                self.assertNotIn("transportPolicy", question["provenance"])
+                other = json.loads((pathlib.Path(question["packageDirectory"]) / "frozen.json").read_text(encoding="utf8"))
+                self.assertNotIn("transportPolicy", other)
+                self.assertEqual(runtime.gateway_timeout(other), 60)
+        for scenarios in ([], ["agendabot", "agendabot"], ["unknown"]):
+            with self.assertRaisesRegex(ValueError, "distinct known"):
+                build.build(HERE / "sources", HERE / "sources/questions.json", self.output / "invalid-scope", scenarios=scenarios)
+        self.assertFalse((self.output / "invalid-scope").exists())
+
+    def test_gateway_uses_package_policy_and_never_retries_failed_model_request(self):
+        binding = {"url": "http://fixture.invalid", "token": "fixture-token", "timeout": 9999}
+        frozen = {"scenario": "agendabot", "transportPolicy": dict(runtime.AGENDA_TRANSPORT_POLICY)}
+        gateway = runtime.Gateway(binding, timeout=runtime.gateway_timeout(frozen))
+        with mock.patch.object(runtime.urllib.request, "urlopen", side_effect=TimeoutError("private failure")) as upstream:
+            with self.assertRaises(runtime.CourseFailure) as caught:
+                gateway.message([{"role": "user", "content": "fixture"}])
+            self.assertEqual(caught.exception.status, "system_error")
+            self.assertEqual(upstream.call_count, 1)
+            self.assertEqual(upstream.call_args.kwargs["timeout"], 330)
+        self.assertEqual(gateway.calls, 0)
+        self.assertEqual(gateway.cache, {})
+        with mock.patch.object(runtime.urllib.request, "urlopen", return_value=io.BytesIO(b'{"choices":[{"message":{"content":"done"}}]}')) as upstream:
+            self.assertEqual(gateway.message([{"role": "user", "content": "fixture"}]), {"content": "done"})
+            request = upstream.call_args.args[0]
+            self.assertEqual(json.loads(request.data), {"messages": [{"role": "user", "content": "fixture"}]})
+            self.assertEqual(upstream.call_count, 1)
+        for other in ({"scenario": "agendabot"}, {"scenario": "webbot"}):
+            self.assertEqual(runtime.gateway_timeout(other), 60)
+        for invalid in ({"scenario": "webbot", "transportPolicy": frozen["transportPolicy"]},
+                        {"scenario": "agendabot", "transportPolicy": {"gatewayTimeoutSeconds": 9999}}):
+            with self.assertRaises(runtime.CourseFailure):
+                runtime.gateway_timeout(invalid)
+
+    def test_run_context_ignores_caller_transport_override(self):
+        for scenario, expected in (("agendabot", 330), ("webbot", 60)):
+            root = self.output / scenario / "package"
+            frozen = json.loads((root / "frozen.json").read_text(encoding="utf8"))
+            context = {"role": "attack", "phase": "baseline", "student": {}, "modelGateway": {},
+                       "parameters": {**{key: frozen[key] for key in ("samples", "seed", "sourceDigest")},
+                                      "transportPolicy": {"gatewayTimeoutSeconds": 9999}},
+                       "transportPolicy": {"gatewayTimeoutSeconds": 9999}}
+            with mock.patch.object(runtime, "Gateway") as gateway, \
+                    mock.patch.object(runtime, "gateway_agent"), \
+                    mock.patch.object(runtime, "remote_function"), \
+                    mock.patch.object(runtime, "evaluate", return_value={}):
+                gateway.return_value.calls = 0
+                runtime.run_context(context, root)
+                gateway.assert_called_once_with({}, timeout=expected)
 
     def test_build_from_crlf_raw_bytes_keeps_all_courses_and_public_helpers_valid(self):
         source = self.output / 'crlf-source'

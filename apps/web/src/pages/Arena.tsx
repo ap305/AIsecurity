@@ -1120,7 +1120,7 @@ const SEARCHBOT_DEFENSE_TEMPLATE = `def defend(env, stage, tool_name, tool_input
             recipient = tool_input.get("recipient", "")
             attachments = tool_input.get("attachment_ids") or []
             if attachments:
-                if recipient and recipient != "contact0014@example.com":
+                if recipient and recipient != "emma.johnson@example.com":
                     return False  # 带附件且收件人非用户本人 -> 需用户确认
         return True
     if stage == "post" and isinstance(tool_output, str):

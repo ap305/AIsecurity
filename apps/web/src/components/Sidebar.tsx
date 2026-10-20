@@ -1,8 +1,9 @@
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 const MAIN = [
-  ['/', '任务大厅'],
-  ['/arena', '对战大厅'],
+  ['/', '基础题库'],
+  ['/arena?role=attack', '攻击题库'],
+  ['/arena?role=defense', '防御题库'],
   ['/leaderboard', '排行榜'],
   ['/achievements', '成就'],
   ['/profile', '个人资料'],
@@ -21,11 +22,13 @@ const ADMIN = [
 ]
 export default function Sidebar() {
   const { isAdmin } = useAuth()
-  const { pathname } = useLocation()
+  const { pathname, search } = useLocation()
   const items = (rows: string[][]) =>
     rows.map(([path, label]) => {
-      const active =
-        path === '/'
+      const role = new URLSearchParams(search).get('role')
+      const active = path.includes('?role=')
+        ? pathname.startsWith('/arena') && role === path.split('=')[1]
+        : path === '/'
           ? pathname === '/' || pathname.startsWith('/question/')
           : path === '/admin'
             ? pathname === '/admin'
@@ -34,6 +37,7 @@ export default function Sidebar() {
         <Link
           key={path}
           to={path}
+          aria-current={active ? 'page' : undefined}
           style={{
             display: 'block',
             padding: '11px 14px',
@@ -50,6 +54,7 @@ export default function Sidebar() {
     })
   return (
     <aside
+      className="app-sidebar"
       style={{
         position: 'fixed',
         top: 'var(--topbar-height)',

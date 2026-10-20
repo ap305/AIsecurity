@@ -15,8 +15,10 @@ test('Bot CLI reuses raw zero reference proofs, audits 1/n and re-verifies the c
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'legacy-bot-policy-cli-'))
   const posted: any[] = [],
     records = new Map<string, any>()
+  const connections: Array<string | undefined> = []
   const server = http.createServer(async (request, response) => {
     try {
+      connections.push(request.headers.connection)
       const chunks: Buffer[] = []
       for await (const chunk of request) chunks.push(Buffer.from(chunk))
       let data: any
@@ -204,6 +206,7 @@ test('Bot CLI reuses raw zero reference proofs, audits 1/n and re-verifies the c
     assert.equal(outcome.success, false)
     assert.match(outcome.output, /决议证据/)
     assert.equal(posted.length, 4)
+    assert.ok(connections.length > 0 && connections.every(connection => connection === 'close'), 'conversion requests must not reuse sockets after synchronous archive work')
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()))
     fs.rmSync(directory, { recursive: true, force: true })

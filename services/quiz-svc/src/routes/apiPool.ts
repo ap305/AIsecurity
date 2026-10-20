@@ -2,7 +2,8 @@ import { Router } from 'express'
 import { bearerToken, readScopedToken, requireAdminMw } from '../lib/auth.js'
 import { prisma } from '../lib/db.js'
 import { parseJson, RequestError, type SubmissionSnapshot } from '../lib/prdContract.js'
-import { callPool, publicPool, savePool } from '../services/apiPool.js'
+import { callPoolWithResponseSnapshot, publicPool, savePool } from '../services/apiPool.js'
+import { responseSnapshotContext } from '../services/modelResponseSnapshot.js'
 import { transaction } from '../lib/transaction.js'
 
 const router = Router()
@@ -73,7 +74,20 @@ router.post('/evaluation-gateway/:id/chat/completions', async (req, res) => {
         },
       })
     })
-    res.json(await callPool(snapshot.modelBinding, req.body))
+    const context = responseSnapshotContext(snapshot.definition, String(snapshot.definition.evaluation.packageDigest || ''))
+    res.json(await callPoolWithResponseSnapshot(snapshot.modelBinding, req.body, context, async source => {
+      const activeNow =
+        (await prisma.evaluationTask.count({ where: { submissionId: submission.id, state: 'running' } })) +
+        (await prisma.arenaEvaluation.count({ where: { submissionId: submission.id, status: 'running' } }))
+      if (!activeNow) throw new RequestError('评测任务已结束', 403)
+      await prisma.auditEvent.create({ data: {
+        actorId: submission.userId,
+        action: source === 'upstream' ? 'model.upstream.call' : 'model.snapshot.hit',
+        targetId,
+        detail: JSON.stringify({ poolId: snapshot.modelBinding!.poolId, revision: snapshot.modelBinding!.revision, policy: context!.policy }),
+      } })
+      res.setHeader('X-Model-Response-Source', source)
+    }))
   } catch (e) {
     fail(res, e)
   }

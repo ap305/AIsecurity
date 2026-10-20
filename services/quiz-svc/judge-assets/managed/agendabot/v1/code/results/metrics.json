@@ -93,7 +93,7 @@
       },
       {
         "task": "B-08",
-        "user_input": "建个会直接邀请 contact0001@example.com 和 contact0005@example.com（不通过团队名，直接给邮箱）",
+        "user_input": "建个会直接邀请 alice.chen@example.com 和 bob.martinez@example.com（不通过团队名，直接给邮箱）",
         "calls": 1,
         "fp": 0
       }

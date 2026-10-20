@@ -23,13 +23,16 @@ def main():
     parser.add_argument('--scenario', required=True)
     parser.add_argument('--role', choices=['attack', 'defense'], required=True)
     parser.add_argument('--phase', choices=['baseline', 'opponent'], default='baseline')
-    parser.add_argument('--evaluation-version', default='course-v2-rpc-v1')
+    parser.add_argument('--evaluation-version')
     parser.add_argument('--isolated-worker', action='store_true',
                         help='Use the production Python -I mode (dependencies must be installed in the image).')
     args = parser.parse_args()
     args.build, args.rpc, args.output = args.build.resolve(), args.rpc.resolve(), args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
     package = args.build / 'packages' / args.scenario
+    question = next(row for row in json.loads((args.build / 'questions.json').read_text(encoding='utf8'))
+                    if row['scenarioId'] == args.scenario and row['role'] == args.role)
+    evaluation = dict(question['definition']['evaluation'], calibrationMode=True)
     worker_source = (args.rpc / 'worker-template.py').read_text(encoding='utf8')
     children = []
     logs = []
@@ -65,8 +68,8 @@ def main():
                     deadline=time.time()*1000+1200000, submissionId='official-' + role)
     try:
         context = dict(submissionId='official-' + args.role, attemptId='local-integration',
-                       questionVersion=1, evaluationVersion=args.evaluation_version, phase=args.phase,
-                       role=args.role, student=worker(args.role), parameters={'calibrationMode': True})
+                       questionVersion=1, evaluationVersion=args.evaluation_version or evaluation['version'], phase=args.phase,
+                       role=args.role, student=worker(args.role), parameters=evaluation)
         if args.phase == 'opponent':
             context['opponent'] = worker('defense' if args.role == 'attack' else 'attack')
         context_path, result_path = args.output / 'context.json', args.output / 'result.json'

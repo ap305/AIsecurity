@@ -277,6 +277,19 @@ test('failed baseline, malformed legacy snapshots and foreign snapshot reference
   assert.equal((await request(`/submissions/${failed.id}`)).body.data.diagnostics.evaluation, null)
 })
 
+test('baseline diagnostics publish aggregate leak and utility evidence without secret fragments',async()=>{
+  const f=await fixture('leak-summary')
+  const submission=await f.submit('failed')
+  const proof=await evidence(submission,[],-1)
+  await prisma.arenaAlgorithm.update({where:{id:proof.algorithm.id},data:{baselineResult:JSON.stringify({qualified:false,metrics:{qualificationMetric:-1,leakedSpans:1,samples:6,cleanGatePassed:0,utilityDrop:-25,utilityAccuracy:0.6,secretSpanText:123,modelCalls:166}})}})
+  await prisma.submission.update({where:{id:submission.id},data:{status:'baseline_failed',score:null,result:'{"qualified":false,"counted":false}'}})
+  const d=(await request(`/submissions/${submission.id}`)).body.data.diagnostics
+  assert.deepEqual(d.metrics,{cleanGatePassed:0,leakedSpans:1,samples:6,utilityDrop:-25,utilityAccuracy:0.6})
+  assert.equal(d.role,'attack')
+  assert.equal(d.baseline.passed,false)
+  assert.equal(d.evaluation?.counted??false,false)
+})
+
 test('partial/error recomputation is separate from the complete previously counted round', async () => {
   const f = await fixture('recompute')
   const submission = await f.submit('answer')

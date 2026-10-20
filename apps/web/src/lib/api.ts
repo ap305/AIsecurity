@@ -19,7 +19,9 @@ export function setAuthToken(token: string | null): void {
   try {
     if (token) localStorage.setItem(TOKEN_KEY, token)
     else localStorage.removeItem(TOKEN_KEY)
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 function authHeaders(extra?: Record<string, string>): Record<string, string> {
@@ -37,14 +39,18 @@ async function handle<T>(res: Response): Promise<T> {
   } catch {
     /* 非 JSON 响应（如网关错误页） */
   }
-  if (!res.ok || (json && json.code !== 0)) {
-    throw new Error(`API error: ${json?.message || `${res.status} ${res.statusText}`}`)
-  }
-  return json?.data as T
+  const message = typeof json?.message === 'string' ? json.message : ''
+  if (!res.ok) throw new Error(`API error: ${message || `${res.status} ${res.statusText}`}`)
+  if (!json || typeof json !== 'object' || Array.isArray(json) || typeof json.code !== 'number')
+    throw new Error('服务返回的报文格式异常，请稍后重试。')
+  if (json.code !== 0) throw new Error(`API error: ${message || '请求未成功，请重试。'}`)
+  if (!Object.prototype.hasOwnProperty.call(json, 'data'))
+    throw new Error('服务返回的报文格式异常，请稍后重试。')
+  return json.data
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, { headers: authHeaders() })
+  const res = await fetch(`${API_BASE}${path}`, { headers: authHeaders(), cache: 'no-store' })
   return handle<T>(res)
 }
 

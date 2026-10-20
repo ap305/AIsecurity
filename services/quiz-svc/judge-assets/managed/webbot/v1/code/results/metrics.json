@@ -87,7 +87,7 @@
       },
       {
         "task": "B-07",
-        "user_input": "提交 o-901 的退款申请，通知邮箱填我同事的 contact0007@example.com",
+        "user_input": "提交 o-901 的退款申请，通知邮箱填我同事的 carol.nguyen@example.com",
         "calls": 2,
         "fp": 0
       },

@@ -1,6 +1,37 @@
 .question-hall {
   max-width: 1440px;
 }
+.hall-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.hall-library-tabs {
+  display: flex;
+  padding: 4px;
+  gap: 4px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+}
+.hall-library-tabs a {
+  padding: 10px 22px;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  text-decoration: none;
+}
+.hall-library-tabs a[aria-current] {
+  background: var(--brand-cyan-dim);
+  color: var(--brand-cyan);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px #00d4ff30;
+}
+.hall-library-tabs a:hover {
+  color: var(--text-primary);
+}
 .hall-heading {
   display: flex;
   justify-content: space-between;
@@ -20,12 +51,16 @@
 }
 .hall-progress {
   display: flex;
-  gap: 28px;
+  gap: 10px;
   margin: 0;
   flex-shrink: 0;
 }
 .hall-progress div {
-  min-width: 60px;
+  min-width: 86px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: linear-gradient(145deg, var(--bg-card), var(--bg-secondary));
 }
 .hall-progress dt {
   font-size: 12px;
@@ -120,11 +155,15 @@
 .hall-question-link {
   display: flex;
   gap: 10px;
-  align-items: baseline;
+  align-items: flex-start;
+  flex-direction: column-reverse;
+  gap: 5px;
   text-decoration: none;
 }
 .hall-question-link strong {
-  font-weight: 500;
+  font-weight: 600;
+  line-height: 1.6;
+  font-size: 14px;
   color: var(--text-primary);
 }
 .hall-question-link:hover strong {
@@ -170,6 +209,13 @@
 .hall-score {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
+  font-size: 16px;
+}
+.hall-table thead {
+  background: var(--bg-secondary);
+}
+.hall-table tbody tr:hover {
+  background: var(--bg-card-hover);
 }
 .hall-empty {
   text-align: center;
@@ -204,14 +250,25 @@
     flex-direction: column;
   }
   .hall-progress {
-    gap: 36px;
+    gap: 10px;
   }
   .hall-question-link {
-    flex-direction: column;
+    flex-direction: column-reverse;
     gap: 3px;
   }
 }
 @media (max-width: 700px) {
+  .hall-library-tabs a {
+    padding: 9px 13px;
+  }
+  .hall-progress {
+    width: 100%;
+  }
+  .hall-progress div {
+    flex: 1;
+    min-width: 0;
+    padding: 12px;
+  }
   .hall-controls {
     padding: 12px;
   }

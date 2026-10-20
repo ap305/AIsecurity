@@ -11,7 +11,7 @@ let server: http.Server,
   upstreamUrl: string,
   token: string,
   otherToken: string
-let id: string, lastModel: any
+let id: string, lastModel: any, snapshotUpstreamCalls = 0, packageRoot: string
 const definition = {
   kind: 'algorithm',
   weights: { enabled: false, required: false, extensions: ['.json'], maxBytes: 1000 },
@@ -40,6 +40,9 @@ function post(body: unknown): RequestInit {
   return { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
 }
 before(async () => {
+  const fs = await import('node:fs/promises'), os = await import('node:os'), path = await import('node:path')
+  packageRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'http-evaluation-packages-'))
+  process.env.EVALUATION_PACKAGE_ROOT = packageRoot
   database = await createTestDatabase()
   prisma = (await import('../src/lib/db.js')).prisma
   upstream = http
@@ -54,6 +57,11 @@ before(async () => {
       req.on('end', () => {
         lastModel = JSON.parse(data || '{}')
         res.setHeader('Content-Type', 'application/json')
+        if (req.url === '/snapshot/chat/completions') {
+          snapshotUpstreamCalls++
+          res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'first response ' + snapshotUpstreamCalls } }] }))
+          return
+        }
         res.end(JSON.stringify({ ok: true, answer: 7 }))
       })
     })
@@ -133,6 +141,7 @@ after(async () => {
   if (upstream) await new Promise<void>((resolve) => upstream.close(() => resolve()))
   await prisma?.$disconnect()
   await database?.close()
+  if (packageRoot) await (await import('node:fs/promises')).rm(packageRoot, { recursive: true, force: true })
 })
 test('authenticated hall exposes public configuration and optional registration fields', async () => {
   assert.equal((await request('/questions', {}, '')).status, 401)
@@ -271,4 +280,76 @@ test('AC-14/22: scoped model gateway pins the upstream model, counts concurrent 
   assert.equal((await request(route, post(body), nextPhase.token)).status, 200)
   await prisma.evaluationTask.update({ where: { id: task.id }, data: { state: 'completed' } })
   assert.equal((await request(route, post(body), nextPhase.token)).status, 403)
+})
+
+test('approved snapshot gateway keeps per-attempt budgets, records hits separately, and rejects ended tasks', async t => {
+  const fs = await import('node:fs/promises'), os = await import('node:os'), path = await import('node:path')
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'gateway-snapshot-'))
+  const old = process.env.EVALUATION_RESPONSE_SNAPSHOT_ROOT
+  process.env.EVALUATION_RESPONSE_SNAPSHOT_ROOT = root
+  t.after(async () => {
+    if (old === undefined) delete process.env.EVALUATION_RESPONSE_SNAPSHOT_ROOT
+    else process.env.EVALUATION_RESPONSE_SNAPSHOT_ROOT = old
+    await fs.rm(root, { recursive: true, force: true })
+  })
+  const { submissionGateway } = await import('../src/services/apiPool.js')
+  const { normalizeDefinition } = await import('../src/lib/prdContract.js')
+  const def = normalizeDefinition({ ...definition, llm: { enabled: true, poolId: 'snapshot-test' }, evaluation: {
+    ...definition.evaluation, version: 'snapshot-v11', packageDigest: 'a'.repeat(64),
+    parameters: { responseSnapshotPolicy: 'first-valid-response-v1', responseSnapshotScope: 'V3-261012-A09' },
+  } })
+  const snapshot = { questionId: 'algo', questionVersion: 1, category: 'basic' as const, role: null, scenarioId: null,
+    evaluationVersion: 'snapshot-v11', definition: def, modelBinding: {
+      poolId: 'snapshot-test', revision: 1, name: 'snapshot', kind: 'llm', model: 'Qwen/Qwen3-8B', modelVersion: 'fixed',
+      baseUrl: upstreamUrl + '/snapshot', credentialEnv: null, parameters: { maxCalls: 1, temperature: 0 },
+    } }
+  const sid = 'snapshot-gateway-test'
+  await prisma.submission.create({ data: { id: sid, questionId: 'algo', userId: id, code: 'synthetic', status: 'judging', questionVersion: 1, configSnapshot: JSON.stringify(snapshot) } })
+  const task = await prisma.evaluationTask.create({ data: { submissionId: sid, state: 'running' } })
+  const route = '/evaluation-gateway/' + sid + '/chat/completions'
+  const body = { messages: [{ role: 'user', content: 'snapshot-fixed' }] }
+  const first = submissionGateway(snapshot, sid)!
+  const a = await request(route, post(body), first.token)
+  assert.equal(a.status, 200)
+  assert.equal((await request(route, post(body), first.token)).status, 429)
+  const second = submissionGateway(snapshot, sid)!
+  const b = await request(route, post({ ...body, model: 'forged', responseSnapshotScope: 'other' }), second.token)
+  assert.equal(b.status, 200); assert.deepEqual(b.json, a.json); assert.equal(snapshotUpstreamCalls, 1)
+  assert.equal(await prisma.auditEvent.count({ where: { action: 'model.upstream.call', targetId: { startsWith: sid + ':' } } }), 1)
+  assert.equal(await prisma.auditEvent.count({ where: { action: 'model.snapshot.hit', targetId: { startsWith: sid + ':' } } }), 1)
+  await prisma.evaluationTask.update({ where: { id: task.id }, data: { state: 'completed' } })
+  assert.equal((await request(route, post(body), submissionGateway(snapshot, sid)!.token)).status, 403)
+  assert.equal(snapshotUpstreamCalls, 1)
+})
+
+test('self-test snapshot gateway preserves logical budgets and separate actual-call evidence', async t => {
+  const fs = await import('node:fs/promises'), path = await import('node:path'), os = await import('node:os')
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'selftest-response-snapshot-'))
+  process.env.EVALUATION_RESPONSE_SNAPSHOT_ROOT = root
+  t.after(async () => { delete process.env.EVALUATION_RESPONSE_SNAPSHOT_ROOT; await fs.rm(root, { recursive: true, force: true }) })
+  const packages = await import('../src/lib/evaluationPackage.js')
+  const pkg = await packages.importEvaluationDirectory(path.join(packages.EVALUATION_EXAMPLE_ROOT, 'basic-algorithm'))
+  const { randomUUID } = await import('node:crypto')
+  const { signScopedToken } = await import('../src/lib/auth.js')
+  const testId = randomUUID(), dir = path.join(packages.packageDirectory(pkg.id), '_self-tests')
+  await fs.mkdir(dir)
+  const poolBinding = { poolId: 'selftest-snapshot', revision: 1, name: 'fixture', kind: 'llm', model: 'Qwen/Qwen3-8B', modelVersion: 'fixture', baseUrl: upstreamUrl + '/snapshot', credentialEnv: null, parameters: { maxCalls: 2 } }
+  const file = path.join(dir, testId + '.json')
+  const record = { id: testId, packageId: pkg.id, packageDigest: pkg.digest, phase: 'baseline', configurationKey: 'fixture', status: 'running', calls: 0, poolBinding,
+    responseSnapshot: { policy: 'first-valid-response-v1', scope: 'V3-261012-A09', evaluationVersion: 'v11', packageDigest: pkg.digest } }
+  await fs.writeFile(file, JSON.stringify(record))
+  const auth = signScopedToken({ purpose: 'selftest', testId, packageId: pkg.id, packageDigest: pkg.digest, poolBinding, exp: Date.now() + 60000 })
+  const route = '/evaluation-self-test-gateway/' + testId + '/chat/completions'
+  const body = { messages: [{ role: 'user', content: 'synthetic self-test' }] }
+  const beforeCalls = snapshotUpstreamCalls
+  assert.equal((await request(route, post(body), token)).status, 403)
+  const a = await request(route, post(body), auth), b = await request(route, post(body), auth)
+  assert.equal(a.status, 200); assert.equal(b.status, 200); assert.deepEqual(a.json, b.json)
+  assert.equal(snapshotUpstreamCalls - beforeCalls, 1)
+  const saved = JSON.parse(await fs.readFile(file, 'utf8'))
+  assert.equal(saved.calls, 2); assert.equal(saved.upstreamCalls, 1); assert.equal(saved.responseSnapshotHits, 1)
+  assert.equal((await request(route, post(body), auth)).status, 400)
+  await fs.writeFile(file, JSON.stringify({ ...saved, status: 'completed' }))
+  assert.equal((await request(route, post(body), auth)).status, 400)
+  assert.equal(snapshotUpstreamCalls - beforeCalls, 1)
 })

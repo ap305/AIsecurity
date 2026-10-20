@@ -1,6 +1,7 @@
 """Isolated class adapters for watermark and confidential-text extraction courses."""
 from __future__ import annotations
 import copy
+import hashlib
 import json
 import math
 import os
@@ -10,6 +11,15 @@ import sys
 import types
 
 from bot_runtime import CourseFailure, Gateway, load_course, numeric_metrics, frozen_parameters
+
+
+WATERMARK_RELATIVE_JUDGE_ID = "relative-preservation-v1"
+WATERMARK_RELATIVE_JUDGE_APPENDIX = (
+    "Judge preservation relative to ORIGINAL, not the absolute writing quality or external truth of either text. "
+    "For fluency, score only deterioration introduced by CANDIDATE; defects already present in ORIGINAL must not reduce preservation scores. "
+    "If CANDIDATE is identical to ORIGINAL, every dimension and overall must be 1.0. "
+    "Continue to penalize any introduced factual change, meaning loss, irrelevant addition, or omission strictly."
+)
 
 
 def rpc(function, *args, **kwargs):
@@ -201,6 +211,24 @@ def blinded_detection(detect, groups, private_order_key):
     return results
 
 
+def official_watermark_attack(course, task, parameters):
+    reference_config = parameters.get("referenceAttackConfig")
+    return (course.reference_attack(types.SimpleNamespace(), task, config=reference_config)
+            if reference_config is not None else course.reference_attack(types.SimpleNamespace(), task))
+
+
+def watermark_judge_system(course, parameters):
+    """User-approved comparison clarification; no identity score shortcut."""
+    if parameters.get("judgeRubric") is None and parameters.get("judgePromptSha256") is None:
+        return course._JUDGE_SYSTEM
+    if parameters.get("number") != "03" or parameters.get("judgeRubric") != WATERMARK_RELATIVE_JUDGE_ID:
+        raise CourseFailure("system_error", "冻结水印裁判口径无效")
+    prompt = course._JUDGE_SYSTEM + " " + WATERMARK_RELATIVE_JUDGE_APPENDIX
+    if hashlib.sha256(prompt.encode("utf8")).hexdigest() != parameters.get("judgePromptSha256"):
+        raise CourseFailure("system_error", "水印裁判提示与冻结摘要不一致")
+    return prompt
+
+
 def evaluate_watermark(course, directory, role, phase, student, opponent, parameters, gateway):
     from platform_student import invoke, expose
     ds = course.dataset
@@ -215,7 +243,7 @@ def evaluate_watermark(course, directory, role, phase, student, opponent, parame
     detect = remote.detect if remote else teacher_detector.detect
     attack_worker = student if role == "attack" else opponent if phase == "opponent" else None
     judge = object.__new__(course.LLMQualityJudge)
-    judge.model, judge._system, judge._quality_system = "frozen-platform-pool", course._JUDGE_SYSTEM, course._JUDGE_QUALITY_SYSTEM
+    judge.model, judge._system, judge._quality_system = "frozen-platform-pool", watermark_judge_system(course, parameters), course._JUDGE_QUALITY_SYSTEM
     judge._chat = lambda system, user, _key: str(gateway.message([{"role": "system", "content": system}, {"role": "user", "content": user}]).get("content") or "")
     def strict_judge_number(raw, key):
         value = judge._json_object(raw).get(key)
@@ -237,7 +265,7 @@ def evaluate_watermark(course, directory, role, phase, student, opponent, parame
         nw = teacher.watermark.generate(sample["prompt"], watermarked=False, seed=parameters["seed"] + i)
         task = {"sample_id": sample["sample_id"], "watermarked_text": wm, "language": sample["language"]}
         if attack_worker is None:
-            result = course.reference_attack(types.SimpleNamespace(), task)
+            result = official_watermark_attack(course, task, parameters)
         else:
             result = rpc(invoke, attack_worker, "course_invoke", args=["attack", expose(), task])
         if not isinstance(result, dict):
@@ -294,6 +322,9 @@ def run_context(context, directory):
     for key in ("samples", "seed", "budget", "sourceDigest"):
         if parameters.get(key) != frozen[key]:
             raise CourseFailure("system_error", "题目参数与冻结课程不一致")
+    for key in ("referenceAttackConfig", "judgeRubric", "judgePromptSha256"):
+        if parameters.get(key) != frozen.get(key):
+            raise CourseFailure("system_error", "官方参考攻击或裁判配置与冻结课程不一致")
     course = load_course(directory / "course")
     gateway = Gateway(context.get("modelGateway"), preserve_system=True)
     previous = os.getcwd()

@@ -404,7 +404,7 @@ def measure_false_positive(defense_fn, tasks: list) -> dict:
     faulty = 0
     total = 0
     for task in tasks:
-        env = ChatOpsEnv(attacker_user="Dave", attacker_email="contact0010@example.com",
+        env = ChatOpsEnv(attacker_user="Dave", attacker_email="dave@example.com",
                          defense_fn=defense_fn, defense_name=BASELINE_DEFENSE_NAME)
         for call in task["expected"]:
             total += 1

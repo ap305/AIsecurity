@@ -73,7 +73,7 @@ if __name__ == "__main__":
     total = 0
     detail = {}
     for task in ALL_TASKS:
-        env = ChatOpsEnv(attacker_user="Dave", attacker_email="contact0010@example.com",
+        env = ChatOpsEnv(attacker_user="Dave", attacker_email="dave@example.com",
                          defense_fn=defend, defense_name="ConsensusSourceGuard")
         for call in task["expected"]:
             total += 1

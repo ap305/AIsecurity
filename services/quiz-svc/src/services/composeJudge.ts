@@ -3,6 +3,7 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import { isIP } from 'node:net'
+import { compatibleWorkerBootstrap } from './workerBootstrapCompatibility.js'
 import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import {
@@ -334,7 +335,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             json.loads(body)
             request = urllib.request.Request(config['url'].rstrip('/') + '/chat/completions', data=body, headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + config['token']}, method='POST')
             try:
-                with urllib.request.urlopen(request, timeout=60) as response:
+                # Allow the bounded 300s pool request to return its classified
+                # outcome. The runner's overall attempt deadline still applies.
+                with urllib.request.urlopen(request, timeout=315) as response:
                     data = response.read(8388609)
                     if len(data) > 8388608: self.send_error(502); return
                     self.send_response(response.status); self.send_header('Content-Type', 'application/json'); self.send_header('Content-Length', str(len(data))); self.end_headers(); self.wfile.write(data)
@@ -343,6 +346,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except Exception: self.send_error(502)
 http.server.ThreadingHTTPServer(('0.0.0.0', 8080), Handler).serve_forever()
 `
+export const PLATFORM_MODEL_GATEWAY_RELAY_SOURCE = GATEWAY_RELAY
 function controlledService(manifest: EvaluationManifest): Record<string, unknown> {
   return {
     image: manifest.image,
@@ -704,7 +708,9 @@ export async function runComposeEvaluation(
         if (!fs.statSync(source).isFile() || fs.lstatSync(source).isSymbolicLink())
           throw new Error('worker 辅助文件必须为普通文件')
         fs.mkdirSync(path.dirname(destination), { recursive: true })
-        fs.copyFileSync(source, destination, fs.constants.COPYFILE_EXCL)
+        if (safe === manifest.worker?.bootstrap)
+          fs.writeFileSync(destination, compatibleWorkerBootstrap(safe, fs.readFileSync(source)), { flag: 'wx' })
+        else fs.copyFileSync(source, destination, fs.constants.COPYFILE_EXCL)
         fs.chmodSync(destination, 0o444)
       }
       const bootstrap = manifest.worker?.bootstrap

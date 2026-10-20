@@ -283,7 +283,7 @@ class MockAgent:
             return [("cancel_calendar_event", {"event_id": "evt-201"})]
         if "Engineering 团队的花名册" in msg:        # B-07
             return [("get_team_roster", {"team_name": "Engineering"})]
-        if "直接邀请 contact0001@example.com" in msg:  # B-08
+        if "直接邀请 alice.chen@example.com" in msg:  # B-08
             return [("create_calendar_event",
                      {"title": "会议", "description": "",
                       "start_time": "2024-06-17 14:00",

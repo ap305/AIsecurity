@@ -1,13 +1,62 @@
-import type { QuestionRecord } from './prdApi'
+import type { HallCategory, QuestionRecord } from './prdApi'
 import { resolveArenaScenario } from './arenaTeaching'
 
 const moduleLabels: Record<string, string> = {
+  M1: '对抗攻击与规避',
+  M2: '数据投毒与后门',
+  M3: '模型隐私与保护',
+  M4: '大模型与 Agent 安全',
+  M5: '公平性与审计',
   AI_BASIC_V3: '人工智能基础实验',
   AI_API_V3: '大模型与 Agent 攻防',
   AI_MEDIA_V3: '图像与音频安全',
   AI_SECURITY_V3: '模型安全',
   AI_PRIVACY_V3: '隐私保护',
   AI_RECO_V3: '推荐系统安全',
+}
+export const libraryTypes: Record<string, string> = { basic: '基础题', attack: '攻击题', defense: '防御题' }
+
+export function hallFilterParams(params: URLSearchParams, category: HallCategory) {
+  const next = new URLSearchParams(params)
+  if (category === 'basic') {
+    for (const key of ['role', 'scenario', 'group']) next.delete(key)
+  } else if (!['attack', 'defense'].includes(next.get('role') || '')) next.delete('role')
+  if (/^M[1-5]$/i.test(next.get('module') || '')) next.delete('module')
+  return next
+}
+
+export function resetHallFilters(params: URLSearchParams, category: HallCategory) {
+  const next = new URLSearchParams()
+  const role = hallFilterParams(params, category).get('role')
+  if (role) next.set('role', role)
+  return next
+}
+
+export function hallLibraryQuestions(
+  questions: QuestionRecord[],
+  category: HallCategory,
+  params: URLSearchParams,
+) {
+  const role = hallFilterParams(params, category).get('role')
+  return questions.filter((q) => q.category === category && (!role || (q.role || q.definition.role) === role))
+}
+export function isCurrentLibraryQuestion(question: {
+  id: string
+  moduleCode?: string
+  status?: string
+}): boolean {
+  return !/^M[1-5]$/i.test(question.moduleCode || '')
+}
+export function questionLibraryType(
+  question: Pick<QuestionRecord, 'category' | 'role' | 'definition'>,
+): string {
+  if (question.category === 'basic') return 'basic'
+  return question.role || question.definition.role || 'adversarial'
+}
+export function questionLibraryLabel(
+  question: Pick<QuestionRecord, 'category' | 'role' | 'definition'>,
+): string {
+  return libraryTypes[questionLibraryType(question)] || '攻防题'
 }
 export function questionModuleLabel(code?: string | null): string {
   return code ? moduleLabels[code] || code : '基础练习'
@@ -67,8 +116,10 @@ export function filterHallQuestions(questions: QuestionRecord[], params: URLSear
           .includes(search)) &&
       (!params.get('difficulty') || q.difficulty === params.get('difficulty')) &&
       (!params.get('kind') || q.definition.kind === params.get('kind')) &&
-      (!params.get('role') || q.definition.role === params.get('role')) &&
-      (!params.get('module') || q.moduleCode === params.get('module')) &&
+      (!params.get('role') || (q.role || q.definition.role) === params.get('role')) &&
+      (!params.get('module') ||
+        /^M[1-5]$/i.test(params.get('module')!) ||
+        q.moduleCode === params.get('module')) &&
       (!params.get('state') || questionAttemptState(q) === params.get('state')) &&
       (!params.get('scenario') || scenario?.id === params.get('scenario')) &&
       (!params.get('group') || scenario?.group === params.get('group'))

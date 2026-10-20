@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { apiGet } from '../../lib/api'
 import { statusLabel } from '../../lib/prdApi'
+import { questionModuleLabel } from '../../lib/hallFilters'
 import './StudentScores.css'
 
 interface StudentSummary {
@@ -100,7 +101,7 @@ function QuestionRows({ questions }: { questions: QuestionScore[] }) {
               <td>
                 <strong>{question.title}</strong>
                 <div className="student-scores-secondary">
-                  {question.moduleCode ? `${question.moduleCode} · ` : ''}
+                  {question.moduleCode ? `${questionModuleLabel(question.moduleCode)} · ` : ''}
                   {question.number != null ? `第 ${question.number} 题 · ` : ''}
                   当前版本 v{question.questionVersion} · {statusLabel(question.questionStatus)}
                 </div>

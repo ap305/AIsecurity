@@ -280,3 +280,62 @@
     padding: 16px;
   }
 }
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--brand-cyan);
+  outline-offset: 3px;
+}
+.app-sidebar a:hover {
+  box-shadow: inset 0 0 0 1px var(--border-color);
+  color: var(--text-primary) !important;
+}
+@media (max-width: 600px) {
+  :root {
+    --sidebar-width: 0px;
+  }
+  .app-sidebar {
+    position: sticky !important;
+    top: var(--topbar-height) !important;
+    width: 100% !important;
+    bottom: auto !important;
+    padding: 8px 12px !important;
+    border-right: 0 !important;
+    border-bottom: 1px solid var(--border-color);
+  }
+  .app-sidebar nav {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  .app-sidebar nav a {
+    flex-shrink: 0;
+    margin-bottom: 0 !important;
+    padding: 9px 12px !important;
+  }
+  .app-sidebar nav[aria-label='管理员功能'] {
+    margin-top: 6px !important;
+  }
+  .app-sidebar nav > .prd-muted {
+    display: none;
+  }
+  .app-body {
+    display: block;
+  }
+  .main-content:has(> .solve-workbench) {
+    height: calc(100dvh - var(--topbar-height) - 56px);
+  }
+  .app-body:has(.app-sidebar nav[aria-label='管理员功能']) .main-content:has(> .solve-workbench) {
+    height: calc(100dvh - var(--topbar-height) - 104px);
+  }
+}

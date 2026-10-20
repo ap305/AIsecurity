@@ -1,0 +1,46 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import {buildPaced08Plan,checkPaced08Proof,runPaced08Proofs,publishVerifiedPaced08} from '../scripts/finalizePaced08Questions.js'
+import {upgradeContractsDigest} from '../scripts/upgradeSnapshotQuestions.js'
+import {normalizeDefinition,type PoolBinding} from '../src/lib/prdContract.js'
+const oldPool:PoolBinding={poolId:'original',revision:1,name:'original8B',kind:'llm',model:'Qwen/Qwen3-8B',modelVersion:'fixed',baseUrl:'https://provider.invalid',credentialEnv:'MODEL_API_KEY',parameters:{max_tokens:512,temperature:0,enable_thinking:false,maxCalls:256}}
+const pool:PoolBinding={...structuredClone(oldPool),poolId:'independent08',name:'bounded08',parameters:{...oldPool.parameters,requestTimeoutMs:180000}}
+function fixture(id='V3-261012-D08'){
+ const current:any={id,status:'draft',revision:2,title:id,content:'original',answerTemplate:'code',category:'adversarial',role:id.includes('-A')?'attack':'defense',scenarioId:'scene08',moduleCode:'ADV',number:8,difficulty:'L1',definition:normalizeDefinition({llm:{enabled:true,poolId:'original'},evaluation:{version:'old08',packageId:'old',baselineThreshold:10,successThreshold:0.5}})}
+ const q:any={...structuredClone(current),deploymentReady:true,requiresCalibration:false,selfTest:{codePath:'ref.py',codeSha256:'b'.repeat(64),opponent:{codePath:'peer.py',codeSha256:'c'.repeat(64)}}};q.definition.llm.poolId=pool.poolId;q.definition.evaluation.version='v3-261012-api-rpc-paced08-v12';q.definition.evaluation.baselineThreshold=9;delete q.definition.evaluation.packageId
+ return {q,current,plan:()=>buildPaced08Plan(q,current,{id:'pkg08-'+id,digest:'a'.repeat(64)},oldPool,pool)}
+}
+function proof(plan:any,phase='baseline',value=9){return {id:'12345678-1234-1234-1234-123456789abc',packageId:plan.packageId,packageDigest:plan.packageDigest,configurationKey:plan.configurationKey,phase,status:'completed',calls:2,result:{status:'completed',cleanupStatus:'cleaned',metrics:{[phase==='baseline'?plan.definition.evaluation.baselineMetric:plan.definition.evaluation.successMetric]:value}}}}
+test('08 changes only approved transport pool, package/version and measured thresholds',()=>{
+ assert.equal(fixture().plan().definition.llm.poolId,pool.poolId)
+ for(const id of ['V3-261012-A02','V3-261012-D09'])assert.throws(()=>fixture(id).plan(),/scope/)
+ for(const change of [(f:any)=>f.q.content='changed',(f:any)=>f.q.definition.evaluation.timeoutMs++,(f:any)=>f.q.definition.evaluation.parameters={responseSnapshotPolicy:'first-valid-response-v1'},(f:any)=>f.q.definition.evaluation.calibrationMode=true]){const f=fixture();change(f);assert.throws(f.plan)}
+})
+test('08 new model pool cannot change inference model, parameters or credential reference',()=>{
+ for(const change of [(p:any)=>p.model='other9B',(p:any)=>p.baseUrl='https://other.invalid',(p:any)=>p.credentialEnv='OTHER_KEY',(p:any)=>p.parameters.max_tokens++,(p:any)=>p.parameters.requestTimeoutMs=60000]){const changed=structuredClone(pool);change(changed);const f=fixture();assert.throws(()=>buildPaced08Plan(f.q,f.current,{id:'pkg08',digest:'a'.repeat(64)},oldPool,changed))}
+})
+test('08 final evidence accepts baseline equality and zero opponent loss without snapshots',()=>{const p=fixture().plan();checkPaced08Proof(p,'baseline',proof(p));checkPaced08Proof(p,'opponent',proof(p,'opponent',0))})
+test('08 rejects failed, uncleaned, mismatched or response-cached final evidence',()=>{const p=fixture().plan();for(const change of [(r:any)=>r.calls=0,(r:any)=>r.responseSnapshotHits=1,(r:any)=>r.result.status='system_error',(r:any)=>r.result.cleanupStatus='failed',(r:any)=>r.configurationKey='other',(r:any)=>r.result.metrics[p.definition.evaluation.baselineMetric]=8]){const r:any=proof(p);change(r);assert.throws(()=>checkPaced08Proof(p,'baseline',r))}})
+test('08 unknown POST is retained once and cannot be duplicated',async()=>{const p=fixture().plan(),state:any={tests:{}};let posts=0;const request=async(_route:string,method='GET')=>{assert.equal(method,'POST');posts++;throw Error('unknown')};await assert.rejects(runPaced08Proofs([p],state,request,()=>{},()=>({code:'ref'})));await assert.rejects(runPaced08Proofs([p],state,request,()=>{},()=>({code:'ref'})),/unknown/);assert.equal(posts,1)})
+test('08 normal rejection is not retried and prepared proof IDs are only polled',async()=>{const p=fixture().plan(),r=proof(p);r.result.metrics[p.definition.evaluation.baselineMetric]=8;const state:any={tests:{[p.id]:{baseline:{id:r.id,intent:true,configurationKey:p.configurationKey}}}};let posts=0;await assert.rejects(runPaced08Proofs([p],state,async(_route:string,method='GET')=>{if(method==='POST')posts++;return r},()=>{},()=>({code:'ref'})),/baseline/);assert.equal(posts,0)})
+test('08 material failure happens before POST intent and creates no unknown outcome',async()=>{const p=fixture().plan(),state:any={tests:{}};let posts=0;await assert.rejects(runPaced08Proofs([p],state,async()=>{posts++},()=>{},()=>{throw Error('material changed')}));assert.equal(posts,0);assert.equal(state.tests[p.id].baseline,undefined)})
+
+function publicationFixture(){
+ const items=['V3-261012-A08','V3-261012-D08'].map(id=>fixture(id)),plans=items.map(f=>f.plan()),rows=new Map(items.map(f=>[f.current.id,structuredClone(f.current)])),state:any={tests:{}},puts:any[]=[],events:string[]=[]
+ for(const p of plans)state.tests[p.id]={baseline:proof(p),opponent:proof(p,'opponent',0)}
+ const acceptance:any={status:'passed',kind:'real-student-submit',api:'http://127.0.0.1:14006/api',contractsDigest:upgradeContractsDigest(plans),questionIds:plans.map(p=>p.id),checks:{baselineAccepted:true,emptyArena100:true,normalLossZero:true,adminPerQuestion:true}}
+ const request=async(route:string,method='GET',body?:any)=>{events.push(method+' '+route);if(route.includes('/self-tests/')){const p=plans.find(p=>route.includes('/'+p.packageId+'/'))!;return proof(p,route.endsWith('123456789abc')?'baseline':'opponent')}
+  const id=decodeURIComponent(route.split('/').at(-1)!),row=rows.get(id);assert(row)
+  if(method==='PUT'){puts.push({id,body});Object.assign(row,body);delete row.expectedQuestionDigest;row.revision++;row.evaluationVersion=body.definition.evaluation.version}
+  return structuredClone(row)
+ }
+ // Give each phase a distinct genuine record and resolve by its full route.
+ for(const p of plans)state.tests[p.id].opponent.id='12345678-1234-1234-1234-123456789abd'
+ const req=async(route:string,method='GET',body?:any)=>{if(route.includes('/self-tests/')){events.push(method+' '+route);const p=plans.find(p=>route.includes('/'+p.packageId+'/'))!;return structuredClone(state.tests[p.id][route.endsWith('9abd')?'opponent':'baseline'])}return request(route,method,body)}
+ acceptance.contractsDigest=upgradeContractsDigest(plans)
+ return {plans,rows,state,acceptance,puts,events,request:req}
+}
+test('08 publication checks all four final proofs before two CAS writes and retains rows',async()=>{const f=publicationFixture();await publishVerifiedPaced08(f.plans,f.state,f.request,()=>{},f.acceptance);assert.equal(f.puts.length,2);const firstPut=f.events.findIndex(e=>e.startsWith('PUT'));assert.equal(f.events.slice(0,firstPut).filter(e=>e.includes('/self-tests/')).length,4);for(const p of f.plans){assert.equal(f.rows.get(p.id).title,p.retainedQuestionFields.title);assert.equal(f.puts.find(v=>v.id===p.id).body.expectedQuestionDigest,p.beforeQuestionDigest)}})
+test('08 publication rejects other scopes, missing student checks and stale rows with no PUT',async()=>{for(const mutate of [(f:any)=>f.plans.pop(),(f:any)=>f.plans[0].id='V3-261012-A02',(f:any)=>f.acceptance.checks.adminPerQuestion=false,(f:any)=>f.acceptance.contractsDigest='changed',(f:any)=>f.rows.get(f.plans[1].id).content='edited']){const f=publicationFixture();mutate(f);await assert.rejects(publishVerifiedPaced08(f.plans,f.state,f.request,()=>{},f.acceptance));assert.equal(f.puts.length,0)}})
+test('08 publication rejects a missing or normally rejected final proof before any PUT',async()=>{for(const mutate of [(f:any)=>delete f.state.tests[f.plans[1].id].opponent,(f:any)=>f.state.tests[f.plans[1].id].baseline.result.metrics[f.plans[1].definition.evaluation.baselineMetric]=0]){const f=publicationFixture();mutate(f);await assert.rejects(publishVerifiedPaced08(f.plans,f.state,f.request,()=>{},f.acceptance));assert.equal(f.puts.length,0)}})
+test('08 uncertain publication is never replayed and exact applied outcomes reconcile',async()=>{const f=publicationFixture();let attempted=0;const req=async(route:string,method='GET',body?:any)=>{if(method==='PUT'&&++attempted===1)throw Error('unknown');return f.request(route,method,body)};await assert.rejects(publishVerifiedPaced08(f.plans,f.state,req,()=>{},f.acceptance),/unknown/);await assert.rejects(publishVerifiedPaced08(f.plans,f.state,req,()=>{},f.acceptance),/reconciliation/);assert.equal(attempted,1);const p=f.plans[0];await f.request('/admin/questions/'+p.id,'PUT',{definition:p.definition,status:'published',expectedQuestionDigest:p.beforeQuestionDigest});await publishVerifiedPaced08(f.plans,f.state,req,()=>{},f.acceptance);assert.equal(f.puts.length,2);assert.equal(f.state.publications[p.id].completed,true)})

@@ -77,7 +77,7 @@ class PackageContracts(unittest.TestCase):
                 self.assertEqual(question['calibration']['baseline'],
                                  'reference' if question['policy']['qualification']['threshold'] is None else 'fixed')
                 if question['scenarioId'] == 'patch_attack':
-                    self.assertEqual(question['definition']['evaluation']['version'], 'course-v2-rpc-patch-target-cpu1-v3')
+                    self.assertEqual(question['definition']['evaluation']['version'], 'course-v2-rpc-patch-target-cpu1-blind-v4')
                     self.assertEqual(question['provenance']['detectionProtocol'], 'each-eligible-target-independent-v2')
                     self.assertEqual(question['provenance']['executionProfile']['intraOpThreads'], 1)
                     self.assertIn('public/patch_runtime.py', manifest['worker']['files'])
@@ -85,8 +85,14 @@ class PackageContracts(unittest.TestCase):
                                      (package / 'public' / 'patch_runtime.py').read_bytes())
                     self.assertEqual(question['calibration']['baselineThreshold'], 0)
                 else:
-                    self.assertEqual(question['definition']['evaluation']['version'], 'course-v2-rpc-v1')
+                    self.assertEqual(question['definition']['evaluation']['version'],
+                                     'course-v2-rpc-v1' if question['scenarioId'].startswith('mnist_')
+                                     else 'course-v2-rpc-blinded-v4')
                     self.assertNotIn('public/patch_runtime.py', manifest['worker']['files'])
+                if not question['scenarioId'].startswith('mnist_'):
+                    self.assertTrue((package / 'evaluation-order.json').is_file())
+                    self.assertNotIn('evaluation-order.json', manifest['worker']['files'])
+                    self.assertIn('privateOrderSha256', question['provenance'])
 
     def test_public_patch_api_has_autograd_but_no_hidden_loader(self):
         source = (ROOT / 'sources' / 'patch_attack' / 'dataset.py').read_text(encoding='utf8')

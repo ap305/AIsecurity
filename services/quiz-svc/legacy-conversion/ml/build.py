@@ -8,11 +8,13 @@ import hashlib
 import json
 import pathlib
 import shutil
+import secrets
 
 from catalog import SCENARIOS, default_roles
 from runtime.patch_runtime import PATCH_EXECUTION_PROFILE
 
 ROOT = pathlib.Path(__file__).resolve().parent
+BLINDED_SCENARIOS = ('deepfake_audio', 'deepfake_image', 'patch_attack', 'watermark_image')
 
 
 def digest(path):
@@ -82,10 +84,26 @@ def asset_directory(root, scenario):
     return next((path for path in options if path.is_dir()), options[0])
 
 
-def build(asset_root, output, image, policy=None, allow_missing_assets=False):
+def build(asset_root, output, image, policy=None, allow_missing_assets=False, private_order_seeds=None):
     if output.exists() and any(output.iterdir()):
         raise ValueError('output must be a new or empty directory; never overwrite an installed package')
     output.mkdir(parents=True, exist_ok=True)
+    if private_order_seeds is None:
+        order_seeds = {scenario: secrets.token_hex(32) for scenario in BLINDED_SCENARIOS}
+    else:
+        seed_path = pathlib.Path(private_order_seeds)
+        if seed_path.is_symlink() or not seed_path.is_file():
+            raise ValueError('private order seeds must be a regular file')
+        order_seeds = json.loads(seed_path.read_text(encoding='utf8'))
+        if not isinstance(order_seeds, dict) or set(order_seeds) != set(BLINDED_SCENARIOS):
+            raise ValueError('private order seeds must cover the four media scenarios exactly')
+        for value in order_seeds.values():
+            if (not isinstance(value, str) or len(value) != 64
+                    or any(ch not in '0123456789abcdef' for ch in value)):
+                raise ValueError('private order seeds must be 32 random bytes encoded as lowercase hex')
+    seed_output = output / 'private-order-seeds.json'
+    write_json(seed_output, order_seeds)
+    seed_output.chmod(0o600)
     policy = policy or {}
     all_questions, manifest_index = [], []
     for scenario, spec in SCENARIOS.items():
@@ -156,6 +174,11 @@ def build(asset_root, output, image, policy=None, allow_missing_assets=False):
             provenance['changes'].append('fixed deterministic single-thread Torch CPU execution in grader and workers')
             provenance['detectionProtocol'] = 'each-eligible-target-independent-v2'
             provenance['executionProfile'] = PATCH_EXECUTION_PROFILE.copy()
+        if scenario in BLINDED_SCENARIOS:
+            order_file = package / 'evaluation-order.json'
+            write_json(order_file, {'schemaVersion': 1, 'seed': order_seeds[scenario]})
+            provenance['privateOrderSha256'] = digest(order_file)
+            provenance['changes'].append('grader-private mixed inference order hides class and evaluation phase')
         config = {'scenario': scenario, 'roles': roles, 'provenance': provenance}
         write_json(package / 'course.json', config)
         worker_files = ['public/' + file.name for file in sorted(public.iterdir()) if file.is_file()]
@@ -176,7 +199,7 @@ def build(asset_root, output, image, policy=None, allow_missing_assets=False):
             symbols = spec['slots'][index]
             reference = extract_reference((source / (role + '.py')).read_text(encoding='utf8'), symbols)
             ref_path = reference_dir / (role + '.py')
-            ref_path.write_text(reference, encoding='utf8')
+            ref_path.write_text(reference, encoding='utf8', newline='\n')
             template = (source / (role + '-blank.py')).read_text(encoding='utf8')
             rule = roles[role]
             calibration = {'baseline': 'fixed' if spec['roles'][role]['qualification'][1] is not None else 'reference',
@@ -191,10 +214,15 @@ def build(asset_root, output, image, policy=None, allow_missing_assets=False):
             content += '\n\n## 提交接口\n\n填写下面原v2接口；np与原公开backend工具已提供，无需访问评测数据文件。\n\n```python\n' + template + '\n```\n'
             content += '\n## 计分\n\n通过固定基线资格后进入对应角色算法池。每次仅与指定有效对手对抗；正常失败计入分母，无对手按100%。资格与对抗比较均包含等于。'
             content += '\n\n<!-- FROZEN_COURSE_THRESHOLDS -->'
+            version = 'course-v2-rpc-v1'
+            if scenario in BLINDED_SCENARIOS:
+                version = 'course-v2-rpc-blinded-v4'
+            if scenario == 'patch_attack':
+                version = 'course-v2-rpc-patch-target-cpu1-blind-v4'
             definition = {'kind': 'algorithm', 'role': role, 'scenarioId': scenario,
                           'weights': {'enabled': False, 'required': False, 'extensions': ['.bin'], 'maxBytes': 1048576, 'description': ''},
                           'teacherApi': {'enabled': False}, 'llm': {'enabled': False},
-                          'evaluation': {'version': 'course-v2-rpc-patch-target-cpu1-v3' if scenario == 'patch_attack' else 'course-v2-rpc-v1', 'timeoutMs': 1200000, 'maxScore': 100,
+                          'evaluation': {'version': version, 'timeoutMs': 1200000, 'maxScore': 100,
                                          'baselineMetric': 'qualificationMetric', 'baselineThreshold': rule['qualification']['threshold'],
                                          'successMetric': 'successMetric', 'successThreshold': rule['success']['threshold'],
                                          'repetitions': 1, 'parameters': {'scenario': scenario, 'seed': 42}}}
@@ -217,9 +245,12 @@ if __name__ == '__main__':
     parser.add_argument('--output', type=pathlib.Path, required=True)
     parser.add_argument('--image', required=True)
     parser.add_argument('--policy', type=pathlib.Path)
+    parser.add_argument('--private-order-seeds', type=pathlib.Path,
+                        help='reuse a grader-private frozen order file; never distribute it to students')
     parser.add_argument('--allow-missing-assets', action='store_true', help='source inspection only: generated records are not publishable')
     args = parser.parse_args()
     rules = json.loads(args.policy.read_text(encoding='utf8')) if args.policy else None
-    questions = build(args.asset_root, args.output, args.image, rules, args.allow_missing_assets)
+    questions = build(args.asset_root, args.output, args.image, rules, args.allow_missing_assets,
+                      args.private_order_seeds)
     print(json.dumps({'questions': len(questions), 'publishable': sum(q['publishable'] for q in questions),
                       'questionsFile': str((args.output / 'questions.json').resolve())}))

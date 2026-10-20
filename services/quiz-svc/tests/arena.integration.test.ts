@@ -59,6 +59,24 @@ async function settle() {
   throw new Error('Arena queue did not settle')
 }
 
+test('adversarial code failures retain a safe failure category and do not trigger three worker retries', async () => {
+  const s = await scene('student-code-failure')
+  await s.submit('student-code-failure-a', 'u0', 'attack')
+  const task = await prisma.evaluationTask.create({data:{submissionId:'student-code-failure-a'}})
+  let runs=0
+  arena.configureArenaRuntime({run:async()=>{runs++;return {status:'student_error',cleanupStatus:'cleaned',publicMessage:'PRIVATE_RAW_ERROR /hidden/data'} }})
+  const worker=await import('../src/services/evaluationWorker.js')
+  for(let i=0;i<3;i++) await worker.processEvaluationTask(task.id)
+  const saved=await prisma.submission.findUniqueOrThrow({where:{id:'student-code-failure-a'}})
+  const result=JSON.parse(saved.result!)
+  assert.equal(result.evaluationStatus,'student_error')
+  assert.equal(result.cleanupStatus,'cleaned')
+  assert.equal(runs,1)
+  assert.equal((await prisma.evaluationTask.findUniqueOrThrow({where:{id:task.id}})).attempts,1)
+  assert.equal(JSON.stringify(result).includes('PRIVATE_RAW_ERROR'),false)
+  assert.match(result.publicMessage,/代码|模型|接口/)
+})
+
 async function scene(id: string) {
   arena.configureArenaRuntime({ run: fixtureRunner, modelGateway: async () => undefined })
   const definition = {

@@ -46,7 +46,7 @@ function fixture() {
 }
 
 async function apiFixture(f: ReturnType<typeof fixture>) {
-  const requests: Array<{ method: string; route: string }> = []
+  const requests: Array<{ method: string; route: string; connection?: string }> = []
   const questions = new Map<string, any>(), tests = new Map<string, any>()
   let installed = false
   let packagePosts = 0, testPosts = 0, dropCreateResponse = false, dropTestResponse = false, invalidBaseline = false, failMessage = false
@@ -54,7 +54,7 @@ async function apiFixture(f: ReturnType<typeof fixture>) {
   const server = http.createServer(async (req, res) => {
     const route = decodeURIComponent(new URL(req.url || '', 'http://localhost').pathname.slice(4))
     const method = req.method || 'GET'
-    requests.push({ method, route })
+    requests.push({ method, route, connection: req.headers.connection })
     const send = (data: any, status = 200) => {
       res.writeHead(status, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ code: status < 400 ? 0 : status, message: 'PRIVATE_SERVER_MESSAGE_SENTINEL', data }))
@@ -175,6 +175,7 @@ test('full HTTP lifecycle preserves original questions, reuses packages/tests an
     assert.ok(api.requests.slice(start).every((r) => r.method === 'GET'))
     assert.equal(fs.readFileSync(f.stateFile, 'utf8'), before)
     assert.equal(fs.existsSync(f.stateFile + '.lock'), false)
+    assert.ok(api.requests.every(r => r.connection === 'close'), 'package, self-test and resource requests must not reuse stale idle sockets')
   } finally { await api.close(); f.clean() }
 })
 
@@ -317,4 +318,41 @@ test('top-level production calibrationMode is rejected before every importer sta
     assert.equal(api.requests.length, 0)
     assert.equal(fs.existsSync(f.stateFile), false)
   } finally { await api.close(); f.clean() }
+})
+
+test('explicit ready-basic publication releases exactly 17 tested basics while all 60 adversarial rows stay unready', async () => {
+  const f = fixture(), api = await apiFixture(f)
+  try {
+    f.manifest.requiresCalibration = true; f.manifest.deploymentReady = false
+    for (const q of f.manifest.questions) {
+      q.requiresCalibration = q.category !== 'basic'; q.deploymentReady = q.category === 'basic'
+      if (q.category !== 'basic') q.definition.evaluation.parameters = {calibrationMode:true}
+    }
+    f.write()
+    const only = COURSE_PACK_IDS.filter(id => id.includes('-B'))
+    const report = await importCoursePack({...api.options, only, publishReadyBasics:true, stage:'all'})
+    assert.equal(report.published,17); assert.equal(report.selfTests,17)
+    assert.equal(api.questions.size,17); assert.equal(api.tests.size,17)
+    assert.ok([...api.questions.values()].every(q => q.category === 'basic' && q.status === 'published'))
+    const n = api.requests.length
+    await importCoursePack({...api.options, only, publishReadyBasics:true, stage:'verify'})
+    assert.ok(api.requests.slice(n).every(r => r.method === 'GET'))
+  } finally { await api.close(); f.clean() }
+})
+
+test('ready-basic override refuses incomplete, widened, unready, or model-calling selections before any HTTP', async () => {
+  for (const failure of ['missing','attack','unready','model'] as const) {
+    const f=fixture(),api=await apiFixture(f)
+    try {
+      for (const q of f.manifest.questions) {q.requiresCalibration=false;q.deploymentReady=true}
+      const only=COURSE_PACK_IDS.filter(id=>id.includes('-B'))
+      if(failure==='missing')only.pop()
+      if(failure==='attack')only.push('V3-261012-A01')
+      if(failure==='unready')f.manifest.questions[0].deploymentReady=false
+      if(failure==='model'){f.manifest.questions[0].definition.llm.enabled=true;f.manifest.questions[0].definition.llm.poolId='pool-1'}
+      f.write()
+      await assert.rejects(importCoursePack({...api.options,only,publishReadyBasics:true,stage:'prepare'}),/ready_basics_requires_exact_explicit_17|selected_basics_not_calibrated_or_ready/)
+      assert.equal(api.requests.length,0); assert.equal(fs.existsSync(f.stateFile),false)
+    } finally {await api.close();f.clean()}
+  }
 })
