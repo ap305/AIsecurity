@@ -65,6 +65,7 @@ function mockExecutor(
     evaluatorFail?: boolean
     badResult?: boolean
     downFail?: boolean
+    preflightFailure?: boolean
   } = {},
 ): CommandExecutor {
   let project = ''
@@ -154,10 +155,29 @@ function mockExecutor(
         stdout: `student log\nPLATFORM_EVALUATION_RESULT:${JSON.stringify(output(i, options.badResult ? { attemptId: 'other-attempt' } : {}))}\n`,
         stderr: '',
       }
+    if (args.includes('/worker/preflight.py')) return {
+      exitCode: 0, stdout: JSON.stringify(options.preflightFailure ? {ok:false,reason:'incomplete',line:3} : {ok:true}), stderr:'',
+    }
     assert.ok(args.includes('down'), `Unexpected Docker command ${args[0]}`)
     return { exitCode: options.downFail ? 1 : 0, stdout: '', stderr: '' }
   }
 }
+test('incomplete candidate stops before scoring/model calls and still cleans isolated resources', async () => {
+  const f = await fixture()
+  try {
+    const i = { ...input(f.descriptor.id), answerTemplate: 'def solve(x): raise NotImplementedError("TODO")' }
+    const commands: string[][] = []
+    const result = await runComposeEvaluation(i, {
+      executor: mockExecutor(i, commands, {preflightFailure:true}),
+      packageRoot: f.packages, workspaceRoot: f.workspaces,
+    })
+    assert.equal(result.status, 'student_error')
+    assert.match(result.publicMessage!, /第 3 行/)
+    assert.equal(result.cleanupStatus, 'cleaned')
+    assert.equal(commands.some(c => c.includes('up') && c.includes('--no-deps')), false)
+    assert.equal(commands.some(c => c.includes('down')), true)
+  } finally { fs.rmSync(f.root, {recursive:true, force:true}) }
+})
 test('isolated job invokes only generated Compose, validates result and cleans all artifacts', async () => {
   const f = await fixture()
   try {
@@ -171,19 +191,20 @@ test('isolated job invokes only generated Compose, validates result and cleans a
     assert.equal(result.status, 'completed')
     assert.equal(result.score, 80)
     assert.equal(result.cleanupStatus, 'cleaned')
-    assert.equal(commands.length, 7)
+    assert.equal(commands.length, 8)
     assert.ok(commands[0].includes('--no-build'))
     assert.ok(commands[0].includes('never'))
     assert.ok(commands[0].includes('--wait'))
     assert.equal(commands[0].at(-1), 'student')
-    assert.ok(commands[1].includes('ps'))
-    assert.equal(commands[2][0], 'inspect')
-    assert.deepEqual(commands[3].slice(0, 2), ['network', 'inspect'])
-    assert.ok(commands[4].includes('--no-deps'))
-    assert.equal(commands[4].at(-1), 'evaluator')
-    assert.ok(commands[5].includes('logs'))
-    assert.ok(commands[6].includes('down'))
-    assert.ok(commands[6].includes('--volumes'))
+    assert.ok(commands[1].includes('/worker/preflight.py'))
+    assert.ok(commands[2].includes('ps'))
+    assert.equal(commands[3][0], 'inspect')
+    assert.deepEqual(commands[4].slice(0, 2), ['network', 'inspect'])
+    assert.ok(commands[5].includes('--no-deps'))
+    assert.equal(commands[5].at(-1), 'evaluator')
+    assert.ok(commands[6].includes('logs'))
+    assert.ok(commands[7].includes('down'))
+    assert.ok(commands[7].includes('--volumes'))
     assert.deepEqual(fs.readdirSync(f.workspaces), ['_cleanup'])
     assert.deepEqual(fs.readdirSync(path.join(f.workspaces, '_cleanup')), [])
   } finally {
@@ -365,7 +386,7 @@ test('gateway discovery uses its verified job-internal address, never its egress
     })
     assert.equal(result.status, 'completed')
     assert.equal(result.cleanupStatus, 'cleaned')
-    assert.equal(commands.length, 10)
+    assert.equal(commands.length, 11)
     assert.equal(commands.filter((c) => c.includes('--no-deps')).length, 1)
   } finally {
     fs.rmSync(f.root, { recursive: true, force: true })

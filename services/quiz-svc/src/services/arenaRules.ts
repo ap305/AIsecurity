@@ -15,6 +15,7 @@ export interface ArenaEvaluationConfig {
 }
 
 export interface ArenaSnapshot {
+  answerTemplate?: string | null
   questionId: string
   questionVersion: number
   category: 'adversarial'

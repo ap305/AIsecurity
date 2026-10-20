@@ -4,6 +4,7 @@ import os from 'node:os'
 import crypto from 'node:crypto'
 import { isIP } from 'node:net'
 import { compatibleWorkerBootstrap } from './workerBootstrapCompatibility.js'
+import { SUBMISSION_PREFLIGHT_SOURCE, decodePreflight } from './submissionPreflight.js'
 import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import {
@@ -29,6 +30,7 @@ export interface ComposeEvaluationInput {
   evaluationVersion: string
   packageId: string
   code: string
+  answerTemplate?: string | null
   filePath: string | null
   phase: EvaluationPhase
   role?: 'attack' | 'defense'
@@ -66,6 +68,7 @@ export type CommandExecutor = (
   options: CommandOptions,
 ) => Promise<CommandResult>
 class EvaluationDeadlineError extends Error {}
+class SubmissionPreflightError extends Error {}
 
 const CONTAINER_ADDRESS_FORMAT =
   '{"id":{{json .Id}},"project":{{json (index .Config.Labels "com.docker.compose.project")}},"service":{{json (index .Config.Labels "com.docker.compose.service")}},"running":{{json .State.Running}},"health":{{json .State.Health.Status}},"networks":{{json .NetworkSettings.Networks}}}'
@@ -717,6 +720,8 @@ export async function runComposeEvaluation(
       if (bootstrap && !manifest.worker!.files.includes(bootstrap))
         throw new Error('worker bootstrap 必须列入公开文件清单')
       readonlyFile(path.join(runtimeDirectory, 'server.py'), STUDENT_WORKER)
+      readonlyFile(path.join(runtimeDirectory, 'preflight.py'), SUBMISSION_PREFLIGHT_SOURCE)
+      readonlyFile(path.join(runtimeDirectory, 'answer-template.py'), name === 'student' ? input.answerTemplate || '' : '')
       readonlyFile(
         path.join(runtimeDirectory, 'config.json'),
         JSON.stringify({
@@ -874,6 +879,13 @@ export async function runComposeEvaluation(
       ...dependencies,
     ])
     if (ready.exitCode !== 0) throw new Error('评测服务启动或健康检查失败')
+    // Read-only AST analysis in the candidate's constrained container, before
+    // student imports, weights, model calls or the trusted grader are started.
+    const preflight = await command([...args, 'exec', '-T', 'student', 'python', '/worker/preflight.py',
+      '/materials/code.py', '/worker/answer-template.py'])
+    if (preflight.exitCode !== 0) throw new Error('submission preflight unavailable')
+    const issue = decodePreflight(preflight.stdout)
+    if (issue) throw new SubmissionPreflightError(issue)
     for (const service of dependencies) {
       const address = await discoverServiceAddress(command, args, project, service)
       if (service === 'gateway')
@@ -918,9 +930,9 @@ export async function runComposeEvaluation(
     }
   } catch (error) {
     result = {
-      status: error instanceof EvaluationDeadlineError ? 'timeout' : 'system_error',
+      status: error instanceof SubmissionPreflightError ? 'student_error' : error instanceof EvaluationDeadlineError ? 'timeout' : 'system_error',
       publicMessage:
-        error instanceof EvaluationDeadlineError
+        error instanceof SubmissionPreflightError ? error.message : error instanceof EvaluationDeadlineError
           ? '评测超时，本次不计分'
           : '评测配置、材料或结果校验失败，本次不计分',
       cleanupStatus: 'not_started',

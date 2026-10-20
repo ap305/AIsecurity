@@ -77,6 +77,37 @@ test('adversarial code failures retain a safe failure category and do not trigge
   assert.match(result.publicMessage,/代码|模型|接口/)
 })
 
+test('specific contract diagnostics survive worker processing and preserve the previous active score', async () => {
+  const s = await scene('contract-diagnostics')
+  await s.submit('contract-valid', 'u0', 'attack')
+  await arena.processArenaSubmission('contract-valid')
+  await settle()
+  const before = await s.score('u0', 'attack')
+  await s.submit('contract-invalid', 'u0', 'attack')
+  const candidate = await prisma.submission.findUniqueOrThrow({where:{id:'contract-invalid'}})
+  const template = 'def solve(x): raise NotImplementedError("TODO")'
+  await prisma.submission.update({where:{id:candidate.id},data:{configSnapshot:JSON.stringify({...JSON.parse(candidate.configSnapshot),answerTemplate:template})}})
+  const task = await prisma.evaluationTask.create({data:{submissionId:candidate.id}})
+  let runs = 0
+  arena.configureArenaRuntime({run:async(input)=>{
+    runs++
+    assert.equal(input.answerTemplate, template)
+    return {status:'student_error',cleanupStatus:'cleaned',publicMessage:'防御检索接口不符合题目要求'}
+  }})
+  const worker = await import('../src/services/evaluationWorker.js')
+  await worker.processEvaluationTask(task.id)
+  await worker.processEvaluationTask(task.id)
+  const failed = await prisma.submission.findUniqueOrThrow({where:{id:candidate.id}})
+  assert.equal(failed.status,'failed')
+  assert.equal(runs,1)
+  assert.equal(JSON.parse(failed.result!).counted,false)
+  assert.match(JSON.parse(failed.result!).publicMessage,/guard_retrieval.*列表/)
+  const after = await s.score('u0','attack')
+  for (const field of ['score','activeSubmissionId','scoreReachedAt','snapshotId','counted','qualified','updatedAt'] as const)
+    assert.deepEqual(after![field],before![field])
+  assert.equal(after!.latestSubmissionStatus,'failed')
+})
+
 async function scene(id: string) {
   arena.configureArenaRuntime({ run: fixtureRunner, modelGateway: async () => undefined })
   const definition = {

@@ -3,6 +3,7 @@ import { prisma } from '../lib/db.js'
 import { runComposeEvaluation } from './composeJudge.js'
 import type { ComposeEvaluationResult } from './composeJudge.js'
 import { RequestError } from '../lib/prdContract.js'
+import { studentFailureMessage } from './studentFailureMessage.js'
 import {
   aggregateArenaResults,
   arenaScoreReachedAt,
@@ -46,7 +47,7 @@ function failureResult(error: unknown): Record<string, unknown> {
   if (!(error instanceof ArenaExecutionFailure)) return {counted:false, publicMessage:safeError(error)}
   const status=error.output.status
   const messages = {
-    student_error:'代码或模型运行失败，请核对题目接口、依赖及模型结构后重新提交；本次不计分，原有效成绩保留',
+    student_error:studentFailureMessage(error.output.publicMessage),
     timeout:'评测超时，本次不计分，原有效成绩保留',
     system_error:'评测环境异常，本次不计分，原有效成绩保留；请联系管理员查看任务状态',
     completed:'评测结果无效，本次不计分，原有效成绩保留',
@@ -255,6 +256,7 @@ async function processArenaEvaluation(jobId: string): Promise<void> {
       evaluationVersion: snapshot.evaluationVersion,
       packageId: config.packageId,
       code: submission.code,
+      answerTemplate: snapshot.answerTemplate,
       filePath: submission.filePath,
       role: snapshot.role,
       timeoutMs: config.timeoutMs,

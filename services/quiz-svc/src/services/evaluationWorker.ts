@@ -6,6 +6,7 @@ import { runComposeEvaluation } from './composeJudge.js'
 import { processArenaSubmission, recoverArenaTasks, configureArenaRuntime } from './arenaScoring.js'
 import { submissionGateway } from './apiPool.js'
 import { transaction } from '../lib/transaction.js'
+import { studentFailureMessage } from './studentFailureMessage.js'
 
 let running = false,
   enabled = false,
@@ -93,7 +94,7 @@ export async function processEvaluationTask(id: string) {
         const known = ['student_error', 'timeout', 'system_error'].includes(String(status))
         // The arena publishes fixed messages; never relay an untrusted raw evaluator message.
         const messages = {
-          student_error:'代码或模型运行失败，请核对题目接口、依赖及模型结构后重新提交；本次不计分，原有效成绩保留',
+          student_error:studentFailureMessage(result.publicMessage),
           timeout:'评测超时，本次不计分，原有效成绩保留',
           system_error:'评测环境异常，本次不计分，原有效成绩保留；请联系管理员查看任务状态',
         }
@@ -118,6 +119,7 @@ export async function processEvaluationTask(id: string) {
       evaluationVersion: submission.evaluationVersion,
       packageId: snapshot.definition.evaluation.packageId!,
       code: submission.code,
+      answerTemplate: snapshot.answerTemplate,
       filePath: submission.filePath,
       phase: 'basic',
       timeoutMs: snapshot.definition.evaluation.timeoutMs,
@@ -125,7 +127,8 @@ export async function processEvaluationTask(id: string) {
       parameters: snapshot.definition.evaluation,
     })
     const result = {
-      publicMessage: output.publicMessage,
+      publicMessage: output.status === 'student_error' ? studentFailureMessage(output.publicMessage) : output.publicMessage,
+      ...(output.status !== 'completed' ? { evaluationStatus: output.status, counted: false } : {}),
       maxScore: output.maxScore,
       metrics: output.metrics,
       cleanupStatus: output.cleanupStatus,

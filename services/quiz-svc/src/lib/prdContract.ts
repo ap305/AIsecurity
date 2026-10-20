@@ -136,6 +136,7 @@ export interface PoolBinding {
   parameters: Record<string, unknown>
 }
 export interface SubmissionSnapshot {
+  answerTemplate?: string | null
   questionId: string
   questionVersion: number
   category: string
