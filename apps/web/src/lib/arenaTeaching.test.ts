@@ -107,3 +107,19 @@ test('scoring text follows the published thresholds including equality and zero 
   assert.match(text, /失败计入分母/)
   assert.doesNotMatch(text, /PRIVATE_REFERENCE|查询次数.*分|score.*100/)
 })
+
+test('A28 scoring text identifies no-defense qualification and follows the configured threshold', () => {
+  const q = question('V3-261012-28', 'attack', 'V3-261012-A28')
+  q.definition.evaluation.baselineMetric = 'qualificationMetric'
+  q.definition.evaluation.baselineThreshold = 40
+  let text = arenaScoringRules(q).join('\n')
+  assert.match(text, /无防御原文覆盖率 ≥ 40%/)
+  assert.match(text, /无防御环境/)
+  assert.match(text, /学生防御/)
+  q.definition.evaluation.baselineThreshold = 60
+  text = arenaScoringRules(q).join('\n')
+  assert.match(text, /无防御原文覆盖率 ≥ 60%/)
+  assert.doesNotMatch(text, /40%/)
+  q.id = 'V3-261012-A27'
+  assert.doesNotMatch(arenaScoringRules(q).join('\n'), /无防御原文覆盖率/)
+})

@@ -241,6 +241,12 @@ export async function submissionDiagnostics(
     const algorithm = boundAlgorithm(row, bySubmission.get(row.id))
     const baseline = algorithm && decode(algorithm.baselineResult)
     diagnostic.metrics = publicMetrics(baseline?.metrics, ['cleanGatePassed','leakedSpans','samples','utilityDrop','utilityAccuracy'])
+    // This is a trusted aggregate from the frozen grader, never student-supplied text.
+    if (row.questionId === 'V3-261012-A28' && row.role === 'attack') {
+      const coverage = object(baseline?.metrics)?.unprotectedCoverage
+      if (finite(coverage) && coverage >= 0 && coverage <= 1)
+        diagnostic.metrics.unprotectedCoverage = coverage
+    }
     const measured = object(baseline?.metrics)?.[metric]
     const value = finite(measured) ? measured : null
     diagnostic.baseline = {

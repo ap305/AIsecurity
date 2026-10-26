@@ -142,6 +142,17 @@ def extraction_run(course, number, worker, guard, models, parameters):
 
 def evaluate_extraction(course, number, role, phase, student, opponent, parameters, gateway):
     models = {"target": Chat(gateway), "judge": Chat(gateway), "aux": Chat(gateway)}
+    if number == "28" and role == "attack" and phase == "baseline":
+        # Original A28 qualifies against the unprotected environment. Keep every
+        # diagnostic from this same run; reference/student defenses belong to
+        # the separate opponent phase and must not block qualification.
+        row = extraction_run(course, number, student, None, models, parameters)
+        coverage = row["attackMetric"]
+        passed = coverage >= course.QUALIFY_COVERAGE
+        row.update(unprotectedCoverage=coverage, cleanGatePassed=passed,
+                   qualificationMetric=coverage * 100.0 if passed else -1.0,
+                   successMetric=coverage)
+        return row
     reference_name = "GuardedPromptWithLeakFilter" if number == "27" else "SecretSpanRetrievalFilter"
     if role == "attack":
         guard = (RemoteGuard(opponent, number, course) if phase == "opponent" else

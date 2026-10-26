@@ -224,6 +224,41 @@ test('owner/admin diagnostics use frozen inclusive thresholds and anonymize oppo
   assert.equal((await request(`/questions/${f.question.id}/submissions`, otherToken)).body.data.length, 0)
 })
 
+test('only A28 attacks expose bounded unprotected coverage and retain frozen qualification thresholds', async () => {
+  for (const [id, role, visible] of [
+    ['V3-261012-A28', 'attack', true],
+    ['V3-261012-D28', 'defense', false],
+    ['other-coverage-question', 'attack', false],
+  ] as const) {
+    const f = await fixture(id)
+    const snapshot = { questionId: id, questionVersion: 1, category: 'adversarial', role,
+      scenarioId: id, evaluationVersion: 'frozen-v1',
+      definition: { evaluation: { ...config, baselineThreshold: 60 } } }
+    const submission = await f.submit('coverage', { role, configSnapshot: JSON.stringify(snapshot) })
+    const proof = await evidence(submission, [], -1)
+    await prisma.arenaAlgorithm.update({ where: { id: proof.algorithm.id }, data: {
+      baselineResult: JSON.stringify({ qualified: false, metrics: {
+        qualificationMetric: -1, unprotectedCoverage: 0.1667, hiddenSecret: 'PRIVATE_DATA',
+      } }),
+    } })
+    const d = (await request(`/submissions/${submission.id}`)).body.data.diagnostics
+    assert.equal(d.metrics.unprotectedCoverage, visible ? 0.1667 : undefined)
+    assert.equal(d.baseline.threshold, 60)
+    assert.equal(d.baseline.value, -1)
+    assert.equal(d.baseline.passed, false)
+    assert.doesNotMatch(JSON.stringify(d), /PRIVATE_DATA|hiddenSecret/)
+    if (visible) {
+      for (const invalid of [-0.1, 1.01, '0.5']) {
+        await prisma.arenaAlgorithm.update({ where: { id: proof.algorithm.id }, data: {
+          baselineResult: JSON.stringify({ metrics: { qualificationMetric: -1, unprotectedCoverage: invalid } }),
+        } })
+        const invalidD = (await request(`/submissions/${submission.id}`)).body.data.diagnostics
+        assert.equal(invalidD.metrics.unprotectedCoverage, undefined)
+      }
+    }
+  }
+})
+
 test('normal defeat remains zero while an empty completed pool is explicitly 100 percent', async () => {
   for (const [id, values, score] of [
     ['defeat', [0], 0],

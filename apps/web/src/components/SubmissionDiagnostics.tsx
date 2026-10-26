@@ -6,6 +6,11 @@ function record(value: unknown): Record<string, unknown> | null {
 function numeric(value: unknown): string {
   return typeof value === 'number' && Number.isFinite(value) ? String(value) : '—'
 }
+function percentage(value: unknown): string {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? `${Number(value.toFixed(2))}%`
+    : '—'
+}
 function stateLabel(value: unknown) {
   const labels: Record<string, string> = {
     queued: '排队中',
@@ -29,13 +34,21 @@ function stateLabel(value: unknown) {
 }
 
 /** This view only consumes the student's explicit public diagnostics DTO. It never renders raw evaluator logs. */
-export default function SubmissionDiagnostics({ value }: { value: unknown }) {
+export default function SubmissionDiagnostics({ value, questionId }: { value: unknown; questionId?: string }) {
   const diagnostics = record(value)
   if (!diagnostics) return null
   const baseline = record(diagnostics.baseline)
   const evaluation = record(diagnostics.evaluation)
   const progress = record(diagnostics.progress)
   const metrics = record(diagnostics.metrics)
+  const unprotectedQualification = questionId === 'V3-261012-A28'
+    && diagnostics.role === 'attack' && baseline?.metric === 'qualificationMetric'
+  const coverage = metrics?.unprotectedCoverage
+  // A historical qualification sentinel (-1) is not a measured coverage.
+  const coveragePercent = typeof coverage === 'number' && Number.isFinite(coverage) && coverage >= 0 && coverage <= 1
+    ? coverage * 100
+    : typeof baseline?.value === 'number' && baseline.value >= 0 && baseline.value <= 100
+      ? baseline.value : null
   const pairs = Array.isArray(evaluation?.pairs) ? evaluation.pairs.map(record).filter(Boolean) : []
   return (
     <div className="solve-diagnostics">
@@ -46,11 +59,18 @@ export default function SubmissionDiagnostics({ value }: { value: unknown }) {
         <section>
           <h3>基线资格</h3>
           <p>
-            {typeof baseline.metric === 'string' ? baseline.metric : '基线指标'}：
-            <strong>{numeric(baseline.value)}</strong> / 门槛 ≥ {numeric(baseline.threshold)}
+            {unprotectedQualification ? '无防御原文覆盖率' : typeof baseline.metric === 'string' ? baseline.metric : '基线指标'}：
+            <strong>{unprotectedQualification ? percentage(coveragePercent) : numeric(baseline.value)}</strong>
+            {' / 门槛 ≥ '}{unprotectedQualification ? percentage(baseline.threshold) : numeric(baseline.threshold)}
             {' · '}
             {baseline.passed === true ? '通过' : baseline.passed === false ? '未通过' : '等待实测结果'}
           </p>
+          {unprotectedQualification && (
+            <p className="prd-notice">
+              资格测试使用无防御环境；通过资格后才与学生防御进行正式对抗。
+              {baseline.passed === false && '本次未达到此版本的覆盖率门槛，请改进攻击代码后重新提交。'}
+            </p>
+          )}
           {diagnostics.role === 'defense' && diagnostics.evaluationVersion === 'v3-api-cumulative-reference-20261016-v9' && typeof metrics?.leakedSpans === 'number' && (
             <p className="prd-notice">
               累计回复泄露片段：{numeric(metrics.leakedSpans)} / {numeric(metrics.samples)}。

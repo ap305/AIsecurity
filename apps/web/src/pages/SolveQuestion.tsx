@@ -991,7 +991,7 @@ function SubmissionResult({
           )}
         </>
       )}
-      <SubmissionDiagnostics value={submission.diagnostics} />
+      <SubmissionDiagnostics value={submission.diagnostics} questionId={submission.questionId} />
       {metrics.length > 0 && (
         <dl className="solve-metrics">
           {metrics.map(([name, value]) => (

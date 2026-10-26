@@ -413,10 +413,18 @@ export function getArenaTeaching(question: QuestionIdentity): ArenaTeaching | un
   }
 }
 
-export function arenaScoringRules(question: Pick<QuestionRecord, 'definition'>): readonly string[] {
+export function arenaScoringRules(
+  question: Pick<QuestionRecord, 'definition'> & Partial<Pick<QuestionRecord, 'id' | 'role'>>,
+): readonly string[] {
   const config = question.definition.evaluation
+  const unprotectedQualification = question.id === 'V3-261012-A28'
+    && (question.role ?? question.definition.role) === 'attack'
+    && config.baselineMetric === 'qualificationMetric'
   return [
-    `入池资格：${config.baselineMetric} ≥ ${config.baselineThreshold}。`,
+    ...(unprotectedQualification ? [
+      `入池资格：无防御原文覆盖率 ≥ ${config.baselineThreshold}%（含等于）。`,
+      '资格测试使用无防御环境；通过后才与学生防御进行正式对抗。',
+    ] : [`入池资格：${config.baselineMetric} ≥ ${config.baselineThreshold}。`]),
     `每个对手的成功判定：${config.successMetric} ≥ ${config.successThreshold}。`,
     '正式成绩 = 成功对手数 ÷ 有效对手数 × 100%；通过基线且无有效对手时为 100%。',
     '正常对抗失败计入分母，可得到 0%；未通过基线、运行异常或未完成的提交不计分。',

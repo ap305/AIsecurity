@@ -1,0 +1,2 @@
+# Keep this audited historical runtime fixture byte-for-byte across platforms.
+services/quiz-svc/tests/fixtures/a28-original-class-runtime.py -text
