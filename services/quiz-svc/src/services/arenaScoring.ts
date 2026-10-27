@@ -39,20 +39,29 @@ function safeError(error: unknown): string {
 }
 
 class ArenaExecutionFailure extends Error {
-  constructor(readonly output: ComposeEvaluationResult, readonly phase: 'baseline' | 'opponent') {
+  constructor(
+    readonly output: ComposeEvaluationResult,
+    readonly phase: 'baseline' | 'opponent',
+  ) {
     super('Arena execution did not complete')
   }
 }
 function failureResult(error: unknown): Record<string, unknown> {
-  if (!(error instanceof ArenaExecutionFailure)) return {counted:false, publicMessage:safeError(error)}
-  const status=error.output.status
+  if (!(error instanceof ArenaExecutionFailure)) return { counted: false, publicMessage: safeError(error) }
+  const status = error.output.status
   const messages = {
-    student_error:studentFailureMessage(error.output.publicMessage),
-    timeout:'评测超时，本次不计分，原有效成绩保留',
-    system_error:'评测环境异常，本次不计分，原有效成绩保留；请联系管理员查看任务状态',
-    completed:'评测结果无效，本次不计分，原有效成绩保留',
+    student_error: studentFailureMessage(error.output.publicMessage),
+    timeout: '评测超时，本次不计分，原有效成绩保留',
+    system_error: '评测环境异常，本次不计分，原有效成绩保留；请联系管理员查看任务状态',
+    completed: '评测结果无效，本次不计分，原有效成绩保留',
   }
-  return {counted:false,evaluationStatus:status,failedPhase:error.phase,cleanupStatus:error.output.cleanupStatus,publicMessage:messages[status]}
+  return {
+    counted: false,
+    evaluationStatus: status,
+    failedPhase: error.phase,
+    cleanupStatus: error.output.cleanupStatus,
+    publicMessage: messages[status],
+  }
 }
 
 async function serializable<T>(work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
@@ -98,7 +107,7 @@ async function eligibleOpponents(db: ArenaDb, snapshot: ArenaSnapshot, userId: s
     where: { id: { in: algorithms.map((a) => a.submissionId) } },
   })
   const users = await db.user.findMany({
-    where: { id: { in: algorithms.map((a) => a.userId) } },
+    where: { id: { in: algorithms.map((a) => a.userId) }, isTestAccount: false },
     select: { id: true },
   })
   const existingUsers = new Set(users.map((u) => u.id))
@@ -405,6 +414,10 @@ async function processArenaEvaluation(jobId: string): Promise<void> {
         return 'stale' as const
       if (task.kind === 'recompute' && slot?.algorithmId !== task.algorithmId) return 'stale' as const
       const previous = slot && (await tx.arenaScore.findUnique({ where: { algorithmId: slot.algorithmId } }))
+      const owner = await tx.user.findUniqueOrThrow({
+        where: { id: current.userId },
+        select: { isTestAccount: true },
+      })
       const now = new Date()
       const achievedAt = arenaScoreReachedAt(previous || null, aggregate.score, now)
       const scoreData = {
@@ -427,11 +440,16 @@ async function processArenaEvaluation(jobId: string): Promise<void> {
       const publishedResult = {
         qualified: true,
         counted: true,
+        testOnly: owner.isTestAccount,
         ...aggregate,
         snapshotId: task.id,
         snapshotRevision: frozen.revision,
         scoreReachedAt: achievedAt.toISOString(),
-        publicMessage: aggregate.emptyPool ? '暂无有效对手，按规则计100%' : '本次完整对抗评测已完成',
+        publicMessage: owner.isTestAccount
+          ? '测试评测已完成，成绩仅供测试，不进入正式排行榜或他人对手池'
+          : aggregate.emptyPool
+            ? '暂无有效对手，按规则计100%'
+            : '本次完整对抗评测已完成',
       }
       await tx.arenaEvaluation.update({
         where: { id: jobId },
@@ -450,11 +468,16 @@ async function processArenaEvaluation(jobId: string): Promise<void> {
           create: { ...slotKey(snapshot, current.userId), algorithmId: task.algorithmId },
           update: { algorithmId: task.algorithmId },
         })
-        const nextPool = await tx.arenaPool.update({
-          where: { scenarioId_evaluationVersion: poolKey(snapshot) },
-          data: { revision: { increment: 1 } },
-        })
-        for (const peer of currentOpponents) await enqueueRecompute(tx, peer.algorithm.id, nextPool.revision)
+        // Test candidates keep their own result/slot for the workbench, but never
+        // change the formal pool or cause another student's score to be recomputed.
+        if (!owner.isTestAccount) {
+          const nextPool = await tx.arenaPool.update({
+            where: { scenarioId_evaluationVersion: poolKey(snapshot) },
+            data: { revision: { increment: 1 } },
+          })
+          for (const peer of currentOpponents)
+            await enqueueRecompute(tx, peer.algorithm.id, nextPool.revision)
+        }
       }
       // Recomputations publish scores only. They never re-admit an algorithm or enqueue peers.
       return 'completed' as const
@@ -530,6 +553,12 @@ export async function invalidateArenaQuestionTx(
     if (question && submission && isCurrentArenaSubmission(submission, question)) continue
     await tx.arenaSlot.deleteMany({ where: { algorithmId: algorithm.id } })
     await tx.arenaAlgorithm.update({ where: { id: algorithm.id }, data: { status: 'invalidated' } })
+    const owner = await tx.user.findUnique({
+      where: { id: algorithm.userId },
+      select: { isTestAccount: true },
+    })
+    // Test slots were never members of the formal pool, so retiring them cannot change it.
+    if (owner?.isTestAccount) continue
     const key = { scenarioId: algorithm.scenarioId, evaluationVersion: algorithm.evaluationVersion }
     const identity = JSON.stringify(key)
     const group = affectedPools.get(identity) ?? { ...key, roles: new Set<'attack' | 'defense'>() }

@@ -36,7 +36,7 @@ for (const action of ['start', 'renew'])
       res.json({
         code: 0,
         message: 'ok',
-        data: await startTeacherLease(user.id, req.params.id, action === 'renew'),
+        data: await startTeacherLease(user.id, req.params.id, action === 'renew', authPayload(req)),
       })
     } catch (e) {
       fail(res, e)

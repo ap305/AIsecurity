@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import { prisma } from '../lib/db.js'
-import { signScopedToken } from '../lib/auth.js'
+import { signScopedToken, isAccountActive, hasCurrentSession } from '../lib/auth.js'
 import { parseJson, RequestError, type PoolBinding, type SubmissionSnapshot } from '../lib/prdContract.js'
 import { poolHealthy } from './apiPool.js'
 import { transaction } from '../lib/transaction.js'
@@ -40,7 +40,12 @@ export function leaseView(row: any, includeToken = true) {
   }
 }
 
-export async function startTeacherLease(userId: string, questionId: string, renew: boolean) {
+export async function startTeacherLease(
+  userId: string,
+  questionId: string,
+  renew: boolean,
+  sessionPayload?: Parameters<typeof hasCurrentSession>[0],
+) {
   const question = await prisma.question.findUnique({ where: { id: questionId } })
   if (!question || question.status !== 'published') throw new RequestError('题目当前不可使用', 404)
   const version = await prisma.questionRevision.findUnique({
@@ -50,6 +55,10 @@ export async function startTeacherLease(userId: string, questionId: string, rene
   if (!snapshot.definition?.teacherApi.enabled || !snapshot.teacherBinding)
     throw new RequestError('题目未启用教师 API')
   const prepared = await transaction(async (tx) => {
+    const user = await tx.user.findUnique({ where: { id: userId } })
+    if (sessionPayload !== undefined && !hasCurrentSession(sessionPayload, user))
+      throw new RequestError('账号不可用或登录已过期，请重新登录', 401)
+    if (!isAccountActive(user)) throw new RequestError('账号已停用或删除，请联系管理员', 403)
     const freshQuestion = await tx.question.findUnique({ where: { id: questionId } })
     if (
       !freshQuestion ||
@@ -93,11 +102,19 @@ export async function startTeacherLease(userId: string, questionId: string, rene
   if (!prepared.check) return leaseView(prepared.row)
   const ready = await poolHealthy(snapshot.teacherBinding)
   const started = new Date()
-  await transaction(async (tx) => {
+  const row = await transaction(async (tx) => {
     const freshQuestion = await tx.question.findUnique({ where: { id: questionId } })
     const user = await tx.user.findUnique({ where: { id: userId } })
+    if (sessionPayload !== undefined && !hasCurrentSession(sessionPayload, user))
+      throw new RequestError('账号不可用或登录已过期，请重新登录', 401)
+    const owned = await tx.teacherLease.findFirst({
+      where: { id: prepared.row.id, nonce: prepared.row.nonce },
+    })
+    if (!owned) throw new RequestError('教师租约准备已被更新，请刷新后重试', 409)
     const current =
-      freshQuestion?.status === 'published' && freshQuestion.revision === question.revision && !!user
+      freshQuestion?.status === 'published' &&
+      freshQuestion.revision === question.revision &&
+      isAccountActive(user)
     await tx.teacherLease.updateMany({
       where: { id: prepared.row.id, nonce: prepared.row.nonce, state: 'creating' },
       data: !current
@@ -106,8 +123,14 @@ export async function startTeacherLease(userId: string, questionId: string, rene
           ? { state: 'active', startsAt: started, expiresAt: new Date(started.getTime() + LEASE_MS) }
           : { state: 'error', reason: '教师服务暂不可用，可稍后重试' },
     })
+    // Bind the returned credentials to this preparation in the same transaction.
+    // Another session may have replaced this lease while its health check was pending.
+    const result = await tx.teacherLease.findFirst({
+      where: { id: prepared.row.id, nonce: prepared.row.nonce },
+    })
+    if (!result) throw new RequestError('教师租约准备已被更新，请刷新后重试', 409)
+    return result
   })
-  const row = await prisma.teacherLease.findUniqueOrThrow({ where: { id: prepared.row.id } })
   await prisma.auditEvent.create({
     data: {
       actorId: userId,
@@ -144,7 +167,12 @@ export async function consumeTeacherCall(
       throw new RequestError('无效的教师访问凭证', 401)
     const user = await tx.user.findUnique({ where: { id: lease.userId } })
     const question = await tx.question.findUnique({ where: { id: lease.questionId } })
-    if (!user || !question || question.status !== 'published' || question.revision !== lease.questionVersion)
+    if (
+      !isAccountActive(user) ||
+      !question ||
+      question.status !== 'published' ||
+      question.revision !== lease.questionVersion
+    )
       throw new RequestError('账号或题目版本已失效', 403)
     if (leaseState(lease, now) !== 'active') throw new RequestError('租约已到期或撤销，请检查租约状态', 403)
     if (lease.calls >= lease.maxCalls) throw new RequestError('教师查询额度已耗尽', 429)

@@ -142,14 +142,15 @@ export async function arenaQuestionLeaderboard(questionId: string, limit = 100) 
     submissions.filter((s) => isCurrentArenaSubmission(s, question)).map((s) => s.id),
   )
   const ids = algorithms.filter((a) => validSubmissionIds.has(a.submissionId)).map((a) => a.id)
+  // Filter before the score limit so test results cannot displace real students.
+  const users = await prisma.user.findMany({
+    where: { id: { in: algorithms.map((a) => a.userId) }, isTestAccount: false },
+    select: { id: true, displayName: true },
+  })
   const scores = await prisma.arenaScore.findMany({
-    where: { algorithmId: { in: ids }, questionId },
+    where: { algorithmId: { in: ids }, questionId, userId: { in: users.map((u) => u.id) } },
     orderBy: [{ score: 'desc' }, { achievedAt: 'asc' }, { userId: 'asc' }],
     take: Math.max(1, Math.min(500, limit)),
-  })
-  const users = await prisma.user.findMany({
-    where: { id: { in: scores.map((s) => s.userId) } },
-    select: { id: true, displayName: true },
   })
   const byUser = new Map(users.map((u) => [u.id, u.displayName]))
   return scores

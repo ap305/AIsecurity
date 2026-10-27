@@ -4,7 +4,10 @@ export function calculateTier(score: number): Tier {
   return score >= 6000 ? 'platinum' : score >= 3000 ? 'gold' : score >= 1000 ? 'silver' : 'bronze'
 }
 export async function getLeaderboard(limit?: number) {
-  const users = await prisma.user.findMany({ select: { id: true, displayName: true } })
+  const users = await prisma.user.findMany({
+    where: { isTestAccount: false },
+    select: { id: true, displayName: true },
+  })
   const rows = await prisma.basicTotal.findMany({
     where: { userId: { in: users.map((u) => u.id) } },
     orderBy: [{ totalScore: 'desc' }, { scoreReachedAt: 'asc' }, { userId: 'asc' }],
@@ -39,7 +42,7 @@ export async function getUserStats(userId: string) {
   }
 }
 export async function getMyRank(userId: string) {
-  const users = await prisma.user.findMany({ select: { id: true } })
+  const users = await prisma.user.findMany({ where: { isTestAccount: false }, select: { id: true } })
   if (!users.some((user) => user.id === userId)) return null
   const row = await prisma.basicTotal.findUnique({ where: { userId } })
   if (!row) return null
@@ -61,7 +64,7 @@ export async function getMyRank(userId: string) {
   }
 }
 export async function getModuleLeaderboard(moduleCode: string, limit = 50) {
-  const users = await prisma.user.findMany({ select: { id: true } })
+  const users = await prisma.user.findMany({ where: { isTestAccount: false }, select: { id: true } })
   const existingUsers = new Set(users.map((user) => user.id))
   const questions = await prisma.question.findMany({
     where: { moduleCode, category: 'basic' },

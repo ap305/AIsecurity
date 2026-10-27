@@ -315,6 +315,7 @@ export async function listAdminStudentScores(input: {
   if (!Number.isSafeInteger(skip) || skip > 2147483647) throw new RequestError('页码超出支持范围')
   const where: Prisma.UserWhereInput = {
     role: 'student',
+    isTestAccount: false,
     ...(search
       ? {
           OR: [

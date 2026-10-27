@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { prisma } from '../lib/db.js'
-import { requireUser, requireAdminMw, authPayload } from '../lib/auth.js'
+import { requireUser, requireAdminMw, authPayload, hasCurrentSession } from '../lib/auth.js'
 import { parseJson, RequestError, type SubmissionSnapshot } from '../lib/prdContract.js'
 import { transaction } from '../lib/transaction.js'
 import { wakeEvaluationWorker } from '../services/evaluationWorker.js'
@@ -138,6 +138,10 @@ router.post(
       )
         throw new RequestError('参数文件不符合本题格式或大小要求')
       const submission = await transaction(async (tx) => {
+        // Uploading/hash calculation may outlive a disable, deletion, or session revocation.
+        const freshUser = await tx.user.findUnique({ where: { id: user.id } })
+        if (!hasCurrentSession(authPayload(req), freshUser))
+          throw new RequestError('账号不可用或登录已过期，请重新登录', 401)
         const fresh = await tx.question.findUniqueOrThrow({ where: { id: questionId } })
         if (fresh.revision !== question.revision || fresh.status !== 'published')
           throw new RequestError('题目已变化，请刷新后重试', 409)

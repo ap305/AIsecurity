@@ -11,6 +11,8 @@ import {
   adminResetPassword,
   adminDeleteUser,
   adminClearStudents,
+  adminCreateTestAccount,
+  adminSetTestAccountStatus,
   type PublicUser,
 } from '../lib/auth.js'
 
@@ -20,6 +22,8 @@ import {
  *   POST /api/auth/login      登录（学员/管理员，返回 Token）
  *   GET  /api/auth/me         恢复会话（Bearer Token）
  *   GET    /api/admin/users                管理员：列出全部注册用户
+ *   POST   /api/admin/users                管理员：创建测试学生账号
+ *   PUT    /api/admin/users/:id/status     管理员：停用/启用测试学生账号
  *   PUT    /api/admin/users/:id/password   管理员：重置指定用户密码
  *   DELETE /api/admin/users/:id            管理员：删除用户
  *   DELETE /api/admin/users                管理员：清空全部学员
@@ -144,6 +148,28 @@ router.get('/admin/users', async (req: Request, res: Response) => {
   }
 })
 
+router.post('/admin/users', async (req: Request, res: Response) => {
+  try {
+    const admin = await requireAdminUser(req, res)
+    if (!admin) return
+    const user = await adminCreateTestAccount(req.body, admin.id)
+    res.json({ code: 0, message: 'ok', data: { user } })
+  } catch (error) {
+    authFailure(res, error, '测试账号创建暂不可用，请稍后重试')
+  }
+})
+
+router.put('/admin/users/:id/status', async (req: Request, res: Response) => {
+  try {
+    const admin = await requireAdminUser(req, res)
+    if (!admin) return
+    const user = await adminSetTestAccountStatus(req.params.id, req.body?.status, admin.id)
+    res.json({ code: 0, message: 'ok', data: { user } })
+  } catch (error) {
+    authFailure(res, error, '测试账号状态更新暂不可用，请稍后重试')
+  }
+})
+
 router.put('/admin/users/:id/password', async (req: Request, res: Response) => {
   try {
     const admin = await requireAdminUser(req, res)
@@ -159,7 +185,7 @@ router.delete('/admin/users/:id', async (req: Request, res: Response) => {
   try {
     const admin = await requireAdminUser(req, res)
     if (!admin) return
-    await adminDeleteUser(req.params.id)
+    await adminDeleteUser(req.params.id, admin.id)
     res.json({ code: 0, message: 'ok', data: { ok: true } })
   } catch (err) {
     authFailure(res, err, '用户删除暂不可用，请稍后重试')

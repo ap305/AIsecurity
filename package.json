@@ -8,7 +8,7 @@
     "dev:quiz-svc": "pnpm --filter quiz-svc dev",
     "build": "pnpm --filter quiz-svc build && pnpm --filter web build",
     "test": "pnpm --filter quiz-svc test && pnpm test:web",
-    "test:web": "pnpm --filter quiz-svc exec tsx --test ../../apps/web/src/lib/apiEnvelope.test.ts ../../apps/web/src/lib/questionResources.test.ts ../../apps/web/src/lib/prdApi.test.ts ../../apps/web/src/lib/arenaTeaching.test.ts ../../apps/web/src/lib/legacyUploadHistory.test.ts ../../apps/web/src/lib/hallFilters.test.ts ../../apps/web/src/pages/solveWorkbench.test.ts",
+    "test:web": "pnpm --filter quiz-svc exec tsx --test ../../apps/web/src/lib/apiEnvelope.test.ts ../../apps/web/src/lib/questionResources.test.ts ../../apps/web/src/lib/prdApi.test.ts ../../apps/web/src/lib/arenaTeaching.test.ts ../../apps/web/src/lib/legacyUploadHistory.test.ts ../../apps/web/src/lib/hallFilters.test.ts ../../apps/web/src/pages/solveWorkbench.test.ts ../../apps/web/src/lib/adminUsers.test.ts",
     "preview": "pnpm --filter web preview",
     "lint": "pnpm --filter web lint",
     "db:migrate": "pnpm --filter quiz-svc db:migrate",
