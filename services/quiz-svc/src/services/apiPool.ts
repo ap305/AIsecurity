@@ -3,7 +3,7 @@ import { parseJson, RequestError, type PoolBinding, type SubmissionSnapshot } fr
 import { signScopedToken } from '../lib/auth.js'
 import { transaction } from '../lib/transaction.js'
 import crypto from 'node:crypto'
-import {waitForColdRequest} from './modelRequestPacing.js'
+import {waitForColdRequest, waitForBackgroundColdRequest} from './modelRequestPacing.js'
 import { withResponseSnapshot, type ResponseSnapshotContext } from './modelResponseSnapshot.js'
 
 export async function callPoolWithResponseSnapshot(
@@ -14,13 +14,22 @@ export async function callPoolWithResponseSnapshot(
 ) {
   if (!context) return callPool(binding, input)
   const started=Date.now()
+  const boundedD02 = context.policy === 'first-valid-response-v1' && context.scope === 'V3-261012-D02' &&
+    context.evaluationVersion === 'v3-261012-d02-original300-v12' && binding.model === 'Qwen/Qwen3-8B' &&
+    binding.parameters.transportPolicy === 'd02-original300-tail-v1'
+  const totalBudgetMs = boundedD02 ? 290000 : 80000
   return withResponseSnapshot({
     root: process.env.EVALUATION_RESPONSE_SNAPSHOT_ROOT || '',
     context, binding, payload: fixedModelPayload(binding, input),
-    beforeCall: () => waitForColdRequest(JSON.stringify([binding.baseUrl,binding.credentialEnv,binding.model]),
-      Number(process.env.EVALUATION_SNAPSHOT_UPSTREAM_INTERVAL_MS ?? 0)),
+    beforeCall: () => {
+      const key = JSON.stringify([binding.baseUrl,binding.credentialEnv,binding.model])
+      const intervalMs = Number(process.env.EVALUATION_SNAPSHOT_UPSTREAM_INTERVAL_MS ?? 0)
+      return boundedD02 ? waitForBackgroundColdRequest(key, intervalMs, started + totalBudgetMs)
+        : waitForColdRequest(key, intervalMs)
+    },
     call: async () => {
-      try { return await callPool(binding, input, false, true, started+80000) }
+      try { return await callPool(binding, input, false, true, started+totalBudgetMs,
+        boundedD02 ? { startedAtMs: started, totalBudgetMs } : undefined) }
       catch (error) {
         // These four new-policy tasks must not translate an unknown provider
         // outcome into the legacy runtime's retryable 503 response.
@@ -172,8 +181,12 @@ export function fixedModelPayload(binding: PoolBinding, input: any) {
 }
 
 type UpstreamFailureReason = 'timeout' | 'transport' | 'http' | 'invalid_json'
+interface UpstreamTiming {
+  totalBudgetMs: number; elapsedBeforeUpstreamMs: number; configuredTimeoutMs: number
+  upstreamTimeoutMs: number; upstreamElapsedMs: number
+}
 
-function logUpstreamFailure(binding: PoolBinding, reason: UpstreamFailureReason, status: number | null) {
+function logUpstreamFailure(binding: PoolBinding, reason: UpstreamFailureReason, status: number | null, timing?: UpstreamTiming) {
   // Keep this allowlist independent of requests, response bodies and exception details.
   console.warn(
     JSON.stringify({
@@ -182,6 +195,7 @@ function logUpstreamFailure(binding: PoolBinding, reason: UpstreamFailureReason,
       revision: binding.revision,
       status,
       reason,
+      ...(timing ? { timing } : {}),
     }),
   )
 }
@@ -217,9 +231,21 @@ async function logRateLimitDiagnostic(binding: PoolBinding, response: Response) 
     rateDimension, retryAfterSeconds: seconds, numericProviderCode: Number.isSafeInteger(value?.code) ? value.code : null}))
 }
 
-export async function callPool(binding: PoolBinding, body: any, teacher = false, diagnoseRateLimit = false, deadlineMs?: number) {
+export async function callPool(binding: PoolBinding, body: any, teacher = false, diagnoseRateLimit = false,
+  deadlineMs?: number, deadlineInfo?: { startedAtMs: number; totalBudgetMs: number }) {
   const configuredTimeoutMs = poolRequestTimeoutMs(binding.parameters)
-  const timeoutMs = deadlineMs === undefined ? configuredTimeoutMs : Math.min(configuredTimeoutMs, Math.max(1,deadlineMs-Date.now()))
+  const startedAtMs = Date.now()
+  const remainingMs = deadlineMs === undefined ? configuredTimeoutMs : deadlineMs - startedAtMs
+  const timeoutMs = Math.min(configuredTimeoutMs, Math.max(1, remainingMs))
+  const timing = (): UpstreamTiming | undefined => deadlineInfo ? {
+    totalBudgetMs: deadlineInfo.totalBudgetMs,
+    elapsedBeforeUpstreamMs: Math.max(0, startedAtMs - deadlineInfo.startedAtMs), configuredTimeoutMs,
+    upstreamTimeoutMs: remainingMs <= 0 ? 0 : timeoutMs, upstreamElapsedMs: Math.max(0, Date.now() - startedAtMs),
+  } : undefined
+  if (deadlineInfo && remainingMs <= 0) {
+    logUpstreamFailure(binding, 'timeout', null, timing())
+    throw new RequestError('模型请求总时限已耗尽，本次不产生正式成绩', 502)
+  }
   const suffix = teacher ? String(binding.parameters.queryPath || '/predict') : '/chat/completions'
   if (!suffix.startsWith('/') || suffix.startsWith('//') || suffix.includes('..'))
     throw new RequestError('上游路径配置不合法')
@@ -235,11 +261,11 @@ export async function callPool(binding: PoolBinding, body: any, teacher = false,
       signal,
     })
   } catch (error) {
-    logUpstreamFailure(binding, transportFailureReason(error, signal), null)
+    logUpstreamFailure(binding, transportFailureReason(error, signal), null, timing())
     throw new RequestError('模型服务暂不可用，本次不产生正式成绩', 503)
   }
   if (!response.ok) {
-    logUpstreamFailure(binding, 'http', response.status)
+    logUpstreamFailure(binding, 'http', response.status, timing())
     if (diagnoseRateLimit && response.status === 429) await logRateLimitDiagnostic(binding, response)
     try {
       await response.body?.cancel()
@@ -255,6 +281,7 @@ export async function callPool(binding: PoolBinding, body: any, teacher = false,
       binding,
       error instanceof SyntaxError ? 'invalid_json' : transportFailureReason(error, signal),
       response.status,
+      timing(),
     )
     throw new RequestError('模型服务返回错误，本次不产生正式成绩', 502)
   }

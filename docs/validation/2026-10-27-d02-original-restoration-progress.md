@@ -6,7 +6,7 @@
 
 - 新候选版本 `v3-261012-d02-original300-v12`。原 `test.py/defense.py/dataset.py/attack.py` 不改；恢复原作者DataIsolationDefense，不含空注入直通。
 - 原Top-K、三项权重、cleanRankShift≤5及cleanValidRate≥0.99不变。原始参考函数AST提取后SHA-256为 `9b941cd0b0d19b8bad5ace3e70cf628837b8e7c52c810fe688f83b0b64c64b5a`。
-- 仅D02增独立模型池预算3600及显式 `executionProfile=d02-original300-v12` 的24小时上限；其他题仍受原1000次、1小时上限。单请求超时、模型、推理参数及未知结果不自动重试政策未变。
+- 仅D02增独立模型池预算3600及显式 `executionProfile=d02-original300-v12` 的24小时上限；其他题仍受原1000次、1小时上限。最初r3保持单请求时限，第二轮实测仍发生上游超时，后续r4采用下文的单题有界长尾策略；模型、推理参数及未知结果不自动重试政策未变。
 - 新D02和旧A02仅共享受限的Pool/Slot版本；算法、任务、成绩仍保存真实评测版本。导入器、成绩汇总与失效清理同步。
 - 独立重任务worker及分页分发隔离D02长任务，普通worker不会被其队头占住。重任务容器部署必须设置至少25小时停止宽限，并保留现有任务自然结束机制。
 - 题面明确300样本、原作者参考及“100−RankShift得分越高越好”。候选元数据中的旧20样本/旧时限声明亦已修正，保留历史来源说明。
@@ -59,3 +59,29 @@
 - 代码保存于本地专用分支，源提交 `a4ba442`；27个审核过的源码、测试、文档同步到净化GitHub，提交 `d66b4e876ca042ec9cce9761dcf8bb0b1ca851fb`，远端分支 `fix/d02-original-evaluation-20261027` 已核验。没有推送原始私有历史、运行数据或凭证。
 - 20:12只读核对：205条题目、101条修订及D02原5条失败提交逐行指纹不变；生产API重启数0、仍release40；首页及API健康均HTTP200，正式队列无queued/running。
 - 校准期间有学生正常提交D06并完成评测得0分，触发既有A06动态重算，A06仍100分。因此ArenaScore/Slot的并发时间戳变化来自正常学生活动，不能误报为本次恢复修改成绩；不重置这些记录。学生代码及身份未输出。
+
+## 21:00 上游长尾修复与r4接续
+
+第二轮在20:29:18结束为system_error/cleaned：48次逻辑请求，40次上游、8次快照命中；累计保留47条合法响应。没有产生完整300样本指标。已读取脱敏上游日志，20:29:16记录reason=timeout/status=null；模型池未配置requestTimeoutMs，实际默认60000毫秒。上一条成功响应时间20:28:11，间隔约65秒，与上游60秒超时相符。另发现旧80秒总时限包含快照锁等待及35秒节奏等待，可能进一步缩短上游窗口，不能把这一耦合未经实测归为本次唯一原因。
+
+仅D02新候选已完成下列修复：
+
+- 新冻结池显式 `transportPolicy=d02-original300-tail-v1`，同一个Qwen/Qwen3-8B，requestTimeoutMs=180000；API总时限290秒、D02包客户端300秒、现有relay315秒。其他题保留原80秒总窗口及原包客户端。
+- 后台D02请求等待时不预订未来模型时隙，普通请求可先使用时隙；后台等到绝对时限仍无机会时，在发上游前失败，禁止无限等待或自动重放未知请求。独立回归复现并修复了t8后台预约导致t10普通请求被拒的场景。
+- 此优先机制只在同一API进程内共享；正式heavy gateway必须指向主API14004。当前14008校准与14004生产仍共享外部8B算力，保持35秒串行节奏，不宣称跨进程配额隔离。
+- 校准CLI每次请求读取正常登录token文件，支持24小时任务中的会话更新。运维登录helper已改同目录0600临时文件+原子替换，既不保存管理员密码也不自签token。
+- 完整后端351项：349通过、0失败、2环境跳过；Python恢复专项14项通过、TypeScript通过。源提交 `5f56348c698f57def74c30488534f2783867ba31`。
+
+新独立候选目录为 `/home/zl/ai-security-v3-20261016/releases/v20261027-43-d02-long-tail-candidate`，Linux编译通过；仅克隆API已更新，生产仍release40。新构建 `/home/zl/ai-security-v3-20261016/build/full-build-production-d02-original300-v12r4`，根manifest SHA-256 `4b49fe5d035de7723ad0d13a59eda25880bac047562e311e412c7abceea0fca0`。原题四份作者源码及参考函数哈希、300样本、Top-K、门禁不变；仅D02包副本的网关客户端时限变更，其他76题、68包及321份公开资料保留。
+
+新模型池 `90072ec3-b9e3-4892-bc96-728c962baba7` revision1，已由正常管理员接口创建且未绑定生产题目；旧池及失败证明保留。新包摘要与模型池域均变化，**不得把旧47条快照改域复用，也不能沿用旧配置证明**。
+
+r4独立全新校准已于北京时间20:57:21启动，未自动循环重试。最新运行状态与取证位置：
+
+- `state/calibration-state-v12r4.json`、`state/pool-map-r4.json`。
+- `state/reports/d02-original-calibration-progress.json`（持续更新）。
+- `state/reports/d02-original-calibration-timeout2-r3.json`、`r3-upstream-diagnostics-preserved.json`（保留第二次失败）。
+- 控制器仍为 `ai-security-d02-original-calibration-20261027`，对应source43；监控脚本优先读取r4，显示各独立响应域计数。
+- 若正常管理员会话临近12小时到期，使用既有授权的正常登录原子刷新token文件；校准CLI会在下一次请求读取它。不得因此重复创建正在运行的自测。
+
+校准与原门禁尚未通过，仍未上线r4；之后须继续原有最终自测、隔离学生流程、备份与成绩保留守卫。

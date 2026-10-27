@@ -203,12 +203,12 @@ export async function calibrate(options: Options) {
     fs.renameSync(statePath + '.tmp', statePath)
   }
   const log = options.log ?? ((item) => console.log(JSON.stringify(item)))
-  const token = fs.readFileSync(options.tokenFile, 'utf8').trim()
-  if (token.length < 16 || /\s/.test(token)) throw new Error('invalid_token_file')
   const api = new URL(options.api)
   if (!['http:', 'https:'].includes(api.protocol) || api.username || api.password || api.search || api.hash || !/\/api\/?$/.test(api.pathname))
     throw new Error('invalid_api_url')
   async function request(route: string, method = 'GET', body?: any) {
+    const token = fs.readFileSync(options.tokenFile, 'utf8').trim()
+    if (token.length < 16 || /\s/.test(token)) throw new Error('invalid_token_file')
     let response: Response
     try {
       response = await fetch(options.api.replace(/\/$/, '') + route, { method,

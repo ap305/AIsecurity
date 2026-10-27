@@ -103,9 +103,10 @@ def patch_build(existing, output, *, apply=False):
         metadata['responseSnapshotPolicy']['qualityGatesAndScoringFormulaUnchanged'] = True
     frozen_text = json.dumps(frozen, indent=2) + '\n'
     environment_text = json.dumps(environment, ensure_ascii=False, indent=2) + '\n'
+    runtime_text = author.transport_runtime((old / DIRECTORY / 'bot_runtime.py').read_bytes()).decode('utf8')
     for item in (package, gp):
         indexed = unique_rows(item['files'], 'path')
-        for filename, body in (('frozen.json', frozen_text), ('manifest.json', environment_text)):
+        for filename, body in (('frozen.json', frozen_text), ('manifest.json', environment_text), ('bot_runtime.py', runtime_text)):
             if indexed[filename]['sha256'] != before[DIRECTORY + '/' + filename]:
                 raise ValueError('D02 package hash differs: ' + filename)
             indexed[filename]['sha256'] = digest(body.encode('utf8'))
@@ -114,7 +115,7 @@ def patch_build(existing, output, *, apply=False):
         raise ValueError('Original-D02 pool already exists')
     pool = copy.deepcopy(old_pool)
     pool.update(poolKey=author.POOL_KEY, questionIds=[ID])
-    pool['parameters']['maxCalls'] = author.MAX_MODEL_CALLS
+    pool['parameters'] = author.pool_parameters(pool['parameters'])
     if old_pool['questionIds'] != ['V3-261012-A02', ID]:
         raise ValueError('Expected the audited A02/D02 pool metadata')
     retained_pool = copy.deepcopy(old_pool)
@@ -129,6 +130,7 @@ def patch_build(existing, output, *, apply=False):
     new_evidence = append_field(new_evidence, 'd02OriginalEvaluationRestoration', {
         **author.POLICY, 'evaluationVersion': author.VERSION, 'questionId': ID,
         'sourceManifestSha256': before['manifest.json'], 'requiredNewCalibrationPhases': 2,
+        'requiresFreshModelPoolBinding': True,
         'proofPolicy': 'Only unchanged76 whole-question contracts may inherit proofs; D02 requires fresh cold calibration, warm final self-tests and real isolated student-flow verification.'})
     retained = {
         'questions': assert_unchanged_records(texts['manifest.json'], new_root, 'questions', 'id', {ID}),
@@ -140,7 +142,8 @@ def patch_build(existing, output, *, apply=False):
     omitted = {'manifest-calibrated.json'} & before.keys()
     replacements = {'manifest.json': new_root, 'adversarial/manifest.json': new_group,
         'build-evidence.json': new_evidence,
-        DIRECTORY + '/frozen.json': frozen_text, DIRECTORY + '/manifest.json': environment_text, REFERENCE: reference}
+        DIRECTORY + '/frozen.json': frozen_text, DIRECTORY + '/manifest.json': environment_text,
+        DIRECTORY + '/bot_runtime.py': runtime_text, REFERENCE: reference}
     report = {'applied': apply, 'modelCalls': 0, 'deploymentReady': False, 'requiresFreshCalibration': True,
         'affectedQuestionIds': [ID], 'evaluationVersion': author.VERSION, 'retainedRecords': retained,
         'retainedAssets': assets, 'changedFiles': sorted(replacements), 'notCopiedDerivedArtifacts': sorted(omitted),

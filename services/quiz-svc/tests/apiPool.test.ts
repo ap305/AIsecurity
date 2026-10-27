@@ -375,3 +375,135 @@ test('a paced snapshot request keeps an overall gateway deadline without changin
  await callPool(binding,request,false,true,145000)
  assert.deepEqual(deadlines,[45000])
 })
+
+async function snapshotDeadlineFixture(t: TestContext) {
+  const fs = await import('node:fs/promises'), os = await import('node:os'), path = await import('node:path')
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'snapshot-d02-deadline-'))
+  const previousRoot = process.env.EVALUATION_RESPONSE_SNAPSHOT_ROOT
+  const previousPacing = process.env.EVALUATION_SNAPSHOT_UPSTREAM_INTERVAL_MS
+  process.env.EVALUATION_RESPONSE_SNAPSHOT_ROOT = root
+  process.env.EVALUATION_SNAPSHOT_UPSTREAM_INTERVAL_MS = '0'
+  t.after(async () => {
+    if (previousRoot === undefined) delete process.env.EVALUATION_RESPONSE_SNAPSHOT_ROOT
+    else process.env.EVALUATION_RESPONSE_SNAPSHOT_ROOT = previousRoot
+    if (previousPacing === undefined) delete process.env.EVALUATION_SNAPSHOT_UPSTREAM_INTERVAL_MS
+    else process.env.EVALUATION_SNAPSHOT_UPSTREAM_INTERVAL_MS = previousPacing
+    await fs.rm(root, { recursive: true, force: true })
+  })
+  return { root, fs }
+}
+
+const d02TailContext = { policy: 'first-valid-response-v1', scope: 'V3-261012-D02',
+  evaluationVersion: 'v3-261012-d02-original300-v12', packageDigest: 'b'.repeat(64) }
+const d02TailBinding: PoolBinding = { ...binding, model: 'Qwen/Qwen3-8B', parameters: {
+  temperature: 0, seed: 42, max_tokens: 512, enable_thinking: false,
+  requestTimeoutMs: 180000, transportPolicy: 'd02-original300-tail-v1',
+} }
+
+test('only explicit original D02 tail policy reserves the bounded 290-second snapshot deadline', async t => {
+  for (const [label, context, selected, expected] of [
+    ['exact D02 policy', d02TailContext, d02TailBinding, 180000],
+    ['missing policy', d02TailContext, { ...d02TailBinding, parameters: { requestTimeoutMs: 180000 } }, 45000],
+    ['unknown policy', d02TailContext, { ...d02TailBinding, parameters: { ...d02TailBinding.parameters, transportPolicy: 'other' } }, 45000],
+    ['legacy version', { ...d02TailContext, evaluationVersion: 'v3-261012-response-snapshot4-v11' }, d02TailBinding, 45000],
+    ['attack scope', { ...d02TailContext, scope: 'V3-261012-A02' }, d02TailBinding, 45000],
+    ['other defense', { ...d02TailContext, scope: 'V3-261012-D09' }, d02TailBinding, 45000],
+    ['different model', d02TailContext, { ...d02TailBinding, model: 'other-model' }, 45000],
+  ] as const) await t.test(label, async child => {
+    await snapshotDeadlineFixture(child)
+    let now = Date.now(), calls = 0
+    const timeouts: number[] = []
+    child.mock.method(Date, 'now', () => now)
+    child.mock.method(AbortSignal, 'timeout', (ms: number) => { timeouts.push(ms); return new AbortController().signal })
+    capture(child, async (_url, init) => {
+      calls++
+      const payload = JSON.parse(String(init?.body))
+      assert.equal('requestTimeoutMs' in payload, false)
+      assert.equal('transportPolicy' in payload, false)
+      return Response.json({ choices: [{ message: { content: '{"score":1}' } }] })
+    })
+    await callPoolWithResponseSnapshot(selected, { ...request, transportPolicy: 'd02-original300-tail-v1',
+      parameters: { transportPolicy: 'd02-original300-tail-v1' } }, context, async source => {
+      if (source === 'upstream') now += 35000
+    })
+    assert.deepEqual(timeouts, [expected])
+    assert.equal(calls, 1)
+  })
+})
+
+test('D02 queue and upstream windows remain separately measurable and unknown timeouts never retry', async t => {
+  const { root, fs } = await snapshotDeadlineFixture(t)
+  let now = Date.now(), calls = 0
+  const timeouts: number[] = []
+  const controller = new AbortController()
+  t.mock.method(Date, 'now', () => now)
+  t.mock.method(AbortSignal, 'timeout', (ms: number) => { timeouts.push(ms); return controller.signal })
+  const log = capture(t, async () => {
+    calls++; now += 180000; controller.abort()
+    throw new DOMException('private-error-message', 'TimeoutError')
+  })
+  await assert.rejects(callPoolWithResponseSnapshot(d02TailBinding, request, d02TailContext,
+    async source => { if (source === 'upstream') now += 100000 }), (e: any) => e.status === 502)
+  assert.deepEqual(timeouts, [180000])
+  assert.equal(calls, 1)
+  assert.deepEqual(await fs.readdir(root), [])
+  assert.deepEqual(JSON.parse(log.mock.calls[0].arguments[0]).timing, {
+    totalBudgetMs: 290000, elapsedBeforeUpstreamMs: 100000,
+    configuredTimeoutMs: 180000, upstreamTimeoutMs: 180000, upstreamElapsedMs: 180000,
+  })
+  for (const secret of privateValues) assert.ok(!log.mock.calls[0].arguments[0].includes(secret))
+})
+
+test('D02 total deadline is still enforced after waiting and a shorter frozen pool timeout is respected', async t => {
+  for (const [waited, configured, expected] of [[200000, 180000, 90000], [35000, 1000, 1000]] as const)
+    await t.test(`${waited}/${configured}`, async child => {
+      await snapshotDeadlineFixture(child)
+      let now = Date.now()
+      const timeouts: number[] = []
+      child.mock.method(Date, 'now', () => now)
+      child.mock.method(AbortSignal, 'timeout', (ms: number) => { timeouts.push(ms); return new AbortController().signal })
+      capture(child, async () => Response.json({ choices: [{ message: { content: '{"score":1}' } }] }))
+      await callPoolWithResponseSnapshot({ ...d02TailBinding,
+        parameters: { ...d02TailBinding.parameters, requestTimeoutMs: configured } }, request, d02TailContext,
+      async source => { if (source === 'upstream') now += waited })
+      assert.deepEqual(timeouts, [expected])
+    })
+})
+
+test('an exhausted D02 total deadline cannot issue a new inference POST', async t => {
+  const { root, fs } = await snapshotDeadlineFixture(t)
+  let now = Date.now()
+  t.mock.method(Date, 'now', () => now)
+  const log = capture(t, async () => { assert.fail('expired request must not contact upstream') })
+  await assert.rejects(callPoolWithResponseSnapshot(d02TailBinding, request, d02TailContext,
+    async source => { if (source === 'upstream') now += 290000 }), (e: any) => e.status === 502)
+  assert.deepEqual(JSON.parse(log.mock.calls[0].arguments[0]).timing, {
+    totalBudgetMs: 290000, elapsedBeforeUpstreamMs: 290000,
+    configuredTimeoutMs: 180000, upstreamTimeoutMs: 0, upstreamElapsedMs: 0,
+  })
+  assert.deepEqual(await fs.readdir(root), [])
+})
+
+test('the D02 tail policy still reuses the first valid exact-request response', async t => {
+  await snapshotDeadlineFixture(t)
+  let calls = 0
+  const sources: string[] = []
+  capture(t, async () => { calls++; return Response.json({ choices: [{ message: { content: '{"score":1}' } }] }) })
+  const invoke = () => callPoolWithResponseSnapshot(d02TailBinding, request, d02TailContext,
+    async source => { sources.push(source) })
+  assert.deepEqual(await invoke(), await invoke())
+  assert.equal(calls, 1)
+  assert.deepEqual(sources, ['upstream', 'snapshot'])
+})
+
+test('D02 expiration during background admission cannot observe or POST upstream', async t => {
+  const { root, fs } = await snapshotDeadlineFixture(t)
+  const expiredStart = Date.now() - 300000
+  t.mock.method(Date, 'now', () => expiredStart)
+  const sources: string[] = []
+  capture(t, async () => { assert.fail('expired background admission must not issue an inference POST') })
+  await assert.rejects(callPoolWithResponseSnapshot(d02TailBinding, request, d02TailContext,
+    async source => { sources.push(source) }), (e: any) => e.status === 502)
+  assert.deepEqual(sources, [])
+  assert.deepEqual(await fs.readdir(root), [])
+})

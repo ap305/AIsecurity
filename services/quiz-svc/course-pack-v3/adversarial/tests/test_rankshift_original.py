@@ -34,6 +34,8 @@ class OriginalD02Tests(unittest.TestCase):
         self.legacy = self.fixture.put('adversarial/references/D02.py', b'def defend(env):\n    return env.base_prompt\n')
         self.fixture.put(subject.DIRECTORY + '/frozen.json', b'{"number":"02","role":"defense","samples":20,"seed":42,"sourceDigest":"unchanged"}')
         self.fixture.put(subject.DIRECTORY + '/manifest.json', b'{"resources":{"timeoutMs":3600000}}')
+        self.canonical_runtime = (Path(rankshift_original.__file__).parent / 'bot_runtime.py').read_bytes()
+        self.fixture.put(subject.DIRECTORY + '/bot_runtime.py', self.canonical_runtime)
         for split in ('public', 'hidden'):
             body = ''.join(json.dumps({'sample_id': split + str(n)}) + '\n' for n in range(150)).encode()
             self.fixture.put(subject.DIRECTORY + '/course/data/' + split + '.jsonl', body)
@@ -69,6 +71,44 @@ class OriginalD02Tests(unittest.TestCase):
         self.assertEqual(subject.snapshot(self.old), before)
         self.assertEqual(result['affectedQuestionIds'], [subject.ID])
         self.assertEqual(result['modelCalls'], 0)
+
+    def test_long_tail_transport_is_d02_only_and_changes_the_package_domain(self):
+        before = subject.snapshot(self.old)
+        subject.patch_build(self.old, self.new, apply=True)
+        runtime = (self.new / subject.DIRECTORY / 'bot_runtime.py').read_bytes()
+        self.assertIn(b'GATEWAY_CLIENT_TIMEOUT_SECONDS = 300', runtime)
+        self.assertNotEqual(runtime, self.canonical_runtime)
+        self.assertEqual((Path(rankshift_original.__file__).parent / 'bot_runtime.py').read_bytes(), self.canonical_runtime)
+        self.assertEqual(subject.snapshot(self.old), before)
+        manifest = json.loads((self.new / 'manifest.json').read_bytes())
+        package = next(p for p in manifest['packages'] if p['key'] == subject.PACKAGE)
+        index = {p['path']: p['sha256'] for p in package['files']}
+        self.assertEqual(index['bot_runtime.py'], subject.digest(runtime))
+        self.assertNotEqual(index['bot_runtime.py'], before[subject.DIRECTORY + '/bot_runtime.py'])
+        question = next(q for q in manifest['questions'] if q['id'] == subject.ID)
+        self.assertEqual(question['definition']['evaluation']['parameters']['transportPolicy'], 'd02-original300-tail-v1')
+        pools = json.loads((self.new / 'build-evidence.json').read_bytes())['apiPools']
+        self.assertEqual(pools[-1]['poolKey'], 'V3-261012-API-D02-ORIGINAL300-LONGTAIL')
+        self.assertEqual(pools[-1]['parameters']['requestTimeoutMs'], 180000)
+        self.assertEqual(pools[-1]['parameters']['transportPolicy'], 'd02-original300-tail-v1')
+        self.assertNotIn('requestTimeoutMs', pools[0]['parameters'])
+        self.assertNotIn('transportPolicy', pools[0]['parameters'])
+
+    def test_transport_only_changes_pinned_deadlines_and_rejects_unknown_runtimes(self):
+        revised = rankshift_original.transport_runtime(self.canonical_runtime)
+        expected = self.canonical_runtime.replace(b'GATEWAY_CLIENT_TIMEOUT_SECONDS = 90',
+                                                  b'GATEWAY_CLIENT_TIMEOUT_SECONDS = 300')
+        expected = expected.replace(b'"unchangedModelPoolAndEvaluationDeadline": True',
+                                    b'"unchangedModelPoolAndEvaluationDeadline": False')
+        self.assertEqual(revised, expected)
+        self.assertEqual((rankshift_original.TRANSPORT_POLICY['apiTotalDeadlineMs'],
+                          rankshift_original.CLIENT_TIMEOUT_SECONDS,
+                          rankshift_original.TRANSPORT_POLICY['existingRelayTimeoutSeconds']),
+                         (290000, 300, 315))
+        self.assertFalse(rankshift_original.TRANSPORT_POLICY['retryUnknownTransportOutcome'])
+        for body in (b'unknown runtime', revised, self.canonical_runtime + b'# changed\n'):
+            with self.assertRaisesRegex(ValueError, 'canonical'):
+                rankshift_original.transport_runtime(body)
 
     def test_apply_retains_other_76_contracts_and_68_packages(self):
         before = subject.snapshot(self.old)
@@ -149,8 +189,18 @@ class OriginalD02Tests(unittest.TestCase):
         before = copy.deepcopy(evaluation)
         result = rankshift_original.evaluation(evaluation)
         self.assertEqual(evaluation, before)
-        self.assertEqual(result['parameters'], {**before['parameters'], 'arenaPoolVersion': subject.PREVIOUS_VERSION})
+        self.assertEqual(result['parameters'], {**before['parameters'], 'arenaPoolVersion': subject.PREVIOUS_VERSION,
+                                                'transportPolicy': 'd02-original300-tail-v1'})
         self.assertEqual(result['version'], rankshift_original.VERSION)
+
+    def test_pool_parameters_keep_inference_parameters_without_mutating_the_original(self):
+        parameters = {'temperature': 0, 'seed': 42, 'max_tokens': 512, 'enable_thinking': False,
+                      'systemPrompt': 'original system prompt', 'maxCalls': 1000}
+        before = copy.deepcopy(parameters)
+        result = rankshift_original.pool_parameters(parameters)
+        self.assertEqual(parameters, before)
+        self.assertEqual(result, {**before, 'maxCalls': 3600, 'requestTimeoutMs': 180000,
+                                  'transportPolicy': 'd02-original300-tail-v1'})
 
     def test_current_metadata_is_consistent_and_historical_patch_lineage_is_retained(self):
         subject.patch_build(self.old, self.new, apply=True)
@@ -167,6 +217,9 @@ class OriginalD02Tests(unittest.TestCase):
         self.assertFalse(row['gatewayTransportPolicy']['unchangedModelPoolAndEvaluationDeadline'])
         self.assertEqual(row['gatewayTransportPolicy']['maxAttempts'], 3)
         self.assertEqual(row['gatewayTransportPolicy']['evaluationTimeoutMs'], 86400000)
+        self.assertEqual(row['gatewayTransportPolicy']['clientTimeoutSeconds'], 300)
+        self.assertEqual(row['gatewayDeadlinePolicy']['transportPolicy'], 'd02-original300-tail-v1')
+        self.assertTrue(row['gatewayDeadlinePolicy']['priorProofsAndResponseSnapshotDomainsMustNotBeRelabelled'])
         self.assertNotIn('officialReferenceRepair', row)
         self.assertIn('supersedesForD02', evidence['d02OriginalEvaluationRestoration'])
         self.assertEqual(evidence['cleanReferenceRepairPatch'], old['cleanReferenceRepairPatch'])

@@ -182,6 +182,8 @@ def build(source_root, output, image, bigram_checkpoint, watermark_reference_con
             if restored_d02:
                 environment['executionProfile'] = rankshift_original.EXECUTION_PROFILE
                 environment['resources']['timeoutMs'] = rankshift_original.TIMEOUT_MS
+                runtime_path = package / 'bot_runtime.py'
+                runtime_path.write_bytes(rankshift_original.transport_runtime(runtime_path.read_bytes()))
             write_json(package / "manifest.json", environment)
             (package / "compose.yaml").write_text("services:\n  evaluator:\n    image: " + json.dumps(image) + "\n", encoding="utf8")
             resources = output / "resources" / question_id
@@ -271,7 +273,7 @@ def build(source_root, output, image, bigram_checkpoint, watermark_reference_con
                 "files": [{"path": file.relative_to(package).as_posix(), "sha256": sha(file)} for file in files_under(package)]})
             if role == "attack" or restored_d02:
                 pools.append({"poolKey": pool_key, "kind": "llm", "questionIds": [PACK_ID + "-A" + number, PACK_ID + "-D" + number],
-                              "parameters": {**built["modelParameters"], "maxCalls": rankshift_original.MAX_MODEL_CALLS if restored_d02 else 1000},
+                              "parameters": rankshift_original.pool_parameters(built["modelParameters"]) if restored_d02 else {**built["modelParameters"], "maxCalls": 1000},
                               "requiresExactModelAndVersion": True, "allowsTrustedDynamicSystem": "systemPrompt" not in built["modelParameters"],
                               "workerNetwork": "none"})
                 if restored_d02:

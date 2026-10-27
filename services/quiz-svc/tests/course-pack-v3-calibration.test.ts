@@ -80,7 +80,7 @@ async function apiFixture(f: ReturnType<typeof fixture>) {
   const pools: any[] = []
   const descriptor = { id: 'package-1', digest: f.packageDigest, valid: true, manifest: { image } }
   const packages = new Map([[descriptor.id, descriptor]])
-  const settings = { dropTestResponse: false, dropPackageResponse: false, testPosts: 0, packagePosts: 0,
+  const settings = { token: privateToken, dropTestResponse: false, dropPackageResponse: false, testPosts: 0, packagePosts: 0,
     success: 0.2, calls: 2, installed: false, mutate: (_record: any, _read: number) => {}, mutatePackage: (_record: any) => {},
     create: (_record: any, _body: any) => {}, beforeRead: async (_record: any, _read: number) => {} }
   const reads = new Map<string, number>()
@@ -95,7 +95,7 @@ async function apiFixture(f: ReturnType<typeof fixture>) {
       res.writeHead(status, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ code: status < 400 ? 0 : status, message: 'PRIVATE_SERVER_MESSAGE_SENTINEL', data }))
     }
-    if (req.headers.authorization !== `Bearer ${privateToken}`) return send(null, 401)
+    if (req.headers.authorization !== `Bearer ${settings.token}`) return send(null, 401)
     if (route === '/admin/api-pool') return send(pools)
     if (route === '/admin/evaluation-packages') {
       if (method === 'GET') return send(settings.installed ? [...packages.values()] : [])
@@ -147,6 +147,39 @@ async function apiFixture(f: ReturnType<typeof fixture>) {
       api: `http://127.0.0.1:${(server.address() as AddressInfo).port}/api`, tokenFile: f.tokenFile, pollMs: 0, log: (_event: any) => {} },
     close: () => new Promise<void>(resolve => server.close(() => resolve())) }
 }
+
+test('long calibration accepts a normally refreshed token between baseline and opponent without replaying jobs', async () => {
+  const f = fixture(), api = await apiFixture(f)
+  const rotated = 'ROTATED_TOKEN_SENTINEL_0123456789'
+  try {
+    api.settings.create = (_record, body) => {
+      if (body.phase === 'baseline') {
+        api.settings.token = rotated
+        fs.writeFileSync(f.tokenFile, rotated)
+      }
+    }
+    assert.equal((await calibrate({ ...api.options, only: [attackId] })).status, 'partial')
+    assert.equal(api.settings.testPosts, 2)
+    const state = JSON.parse(fs.readFileSync(f.stateFile, 'utf8'))
+    assert.equal(state.tests[attackId].baseline.record.result.status, 'completed')
+    assert.equal(state.tests[attackId].opponent.record.result.status, 'completed')
+    assert.equal(JSON.stringify(state).includes(rotated), false)
+  } finally { await api.close(); f.clean() }
+})
+
+test('an invalid refreshed token is rejected before the next calibration mutation is sent', async () => {
+  const f = fixture(), api = await apiFixture(f)
+  try {
+    api.settings.beforeRead = async record => {
+      if (record.phase === 'baseline') fs.writeFileSync(f.tokenFile, 'invalid token')
+    }
+    await assert.rejects(calibrate({ ...api.options, only: [attackId] }), /invalid_token_file/)
+    assert.equal(api.settings.testPosts, 1)
+    assert.equal(api.requests.filter(r => r.method === 'POST' && r.route.endsWith('/self-tests')).length, 1)
+    assert.equal(fs.existsSync(f.output), false)
+    assert.equal(fs.existsSync(f.stateFile + '.lock'), false)
+  } finally { await api.close(); f.clean() }
+})
 
 test('concurrency is bounded to integers 1 through 4 before HTTP or state locking', async () => {
   const f = fixture(), api = await apiFixture(f)

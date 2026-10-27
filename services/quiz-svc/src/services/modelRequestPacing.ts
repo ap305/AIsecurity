@@ -5,13 +5,31 @@ import {RequestError} from '../lib/prdContract.js'
  */
 export function createColdRequestGate(now=Date.now, sleep=(ms:number)=>new Promise<void>(resolve=>setTimeout(resolve,ms))) {
  const next=new Map<string,number>()
- return async(key:string,intervalMs:number)=>{
+ const validate = (intervalMs: number) => {
   if(!Number.isSafeInteger(intervalMs)||intervalMs<0||intervalMs>65000)throw new RequestError('模型请求节奏配置无效',502)
+ }
+ const ordinary = async(key:string,intervalMs:number)=>{
+  validate(intervalMs)
   if(intervalMs===0)return
   const at=now(), start=Math.max(at,next.get(key)??at),wait=start-at
   if(wait>intervalMs)throw new RequestError('模型调用繁忙，本次不产生正式成绩',502)
   next.set(key,start+intervalMs)
   if(wait>0)await sleep(wait)
  }
+ const background = async(key: string, intervalMs: number, deadlineMs: number) => {
+  validate(intervalMs)
+  if (!Number.isSafeInteger(deadlineMs) || deadlineMs < 0) throw new RequestError('后台模型请求时限配置无效', 502)
+  for (;;) {
+   const at = now()
+   if (at >= deadlineMs) throw new RequestError('后台模型请求等待超时，本次不产生正式成绩', 502)
+   if (intervalMs === 0) return
+   const due = next.get(key) ?? at
+   if (due <= at) { next.set(key, at + intervalMs); return }
+   // A waiting background request must not book the next ordinary request's slot.
+   await sleep(Math.min(due - at, deadlineMs - at))
+  }
+ }
+ return Object.assign(ordinary, { background })
 }
 export const waitForColdRequest=createColdRequestGate()
+export const waitForBackgroundColdRequest=waitForColdRequest.background
