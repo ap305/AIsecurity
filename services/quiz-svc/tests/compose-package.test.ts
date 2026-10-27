@@ -202,6 +202,19 @@ test('legacy manifests keep their original normalized shape and extended RPC lim
   assert.throws(() => validateManifest({ ...manifest, resources: { timeoutMs: 3600001 } }), /允许范围/)
 })
 
+test('the original D02 execution profile permits a bounded long timeout without changing legacy manifests', () => {
+  const original = { ...manifest, network: 'gateway', phases: ['baseline', 'opponent'],
+    executionProfile: 'd02-original300-v12', resources: { timeoutMs: 86400000 } }
+  const restored = validateManifest(original)
+  assert.equal(restored.resources.timeoutMs, 86400000)
+  assert.equal(restored.executionProfile, 'd02-original300-v12')
+  assert.equal('executionProfile' in validateManifest(manifest), false)
+  assert.throws(() => validateManifest({ ...original, resources: { timeoutMs: 86400001 } }), /允许范围/)
+  assert.throws(() => validateManifest({ ...original, executionProfile: 'other' }), /配置/)
+  assert.throws(() => validateManifest({ ...original, executionProfile: undefined }), /允许范围/)
+  assert.throws(() => validateManifest({ ...original, network: 'none' }), /配置/)
+})
+
 test('worker exposes only existing explicitly named public files and a declared bootstrap', async () => {
   const worker = { bootstrap: 'public/bootstrap.py', files: ['public/bootstrap.py', 'public/helper.py'] }
   assert.deepEqual(validateManifest({ ...manifest, worker }).worker, {

@@ -4,6 +4,7 @@ import os from 'node:os'
 import crypto from 'node:crypto'
 import { isIP } from 'node:net'
 import { compatibleWorkerBootstrap } from './workerBootstrapCompatibility.js'
+import { evaluationModelCallLimit, isOriginalD02Evaluation, ORIGINAL_D02_TIMEOUT_MS } from '../lib/modelCallBudget.js'
 import { SUBMISSION_PREFLIGHT_SOURCE, decodePreflight } from './submissionPreflight.js'
 import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -665,10 +666,11 @@ export async function runComposeEvaluation(
       packageRoot,
     )
     const manifest = descriptor.manifest
-    const timeoutMs =
-      input.timeoutMs === undefined
-        ? manifest.resources.timeoutMs
-        : Math.min(input.timeoutMs, manifest.resources.timeoutMs)
+    const timeoutMs = Math.min(
+      input.timeoutMs ?? manifest.resources.timeoutMs,
+      manifest.resources.timeoutMs,
+      input.role === 'defense' && isOriginalD02Evaluation(input.parameters) ? ORIGINAL_D02_TIMEOUT_MS : 3600000,
+    )
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 100) throw new Error('评测超时配置无效')
     if (!manifest.phases.includes(input.phase)) throw new Error('环境包不支持该评测阶段')
     if (input.modelGateway && manifest.network !== 'gateway') throw new Error('环境包未允许模型网关')
@@ -811,9 +813,7 @@ export async function runComposeEvaluation(
       context.modelGateway = { url: 'http://gateway:8080/v1', token: localToken }
       fs.mkdirSync(path.join(workspace, 'relay'))
       readonlyFile(path.join(workspace, 'relay/relay.py'), GATEWAY_RELAY)
-      const configuredBudget = Number(input.parameters?.maxModelCalls)
-      const maxCalls =
-        Number.isSafeInteger(configuredBudget) && configuredBudget > 0 ? Math.min(configuredBudget, 1000) : 32
+      const maxCalls = evaluationModelCallLimit(input.parameters, input.role)
       readonlyFile(
         path.join(workspace, 'relay/context.json'),
         JSON.stringify({ ...input.modelGateway, localToken, maxCalls }),

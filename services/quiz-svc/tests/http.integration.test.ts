@@ -353,3 +353,29 @@ test('self-test snapshot gateway preserves logical budgets and separate actual-c
   assert.equal((await request(route, post(body), auth)).status, 400)
   assert.equal(snapshotUpstreamCalls - beforeCalls, 1)
 })
+
+test('original D02 self-test allows its expanded calls while respecting the frozen pool limit', async () => {
+  const fs = await import('node:fs/promises'), path = await import('node:path')
+  const packages = await import('../src/lib/evaluationPackage.js')
+  const { evaluationModelCallLimit } = await import('../src/lib/modelCallBudget.js')
+  const { randomUUID } = await import('node:crypto')
+  const { signScopedToken } = await import('../src/lib/auth.js')
+  const pkg = await packages.importEvaluationDirectory(path.join(packages.EVALUATION_EXAMPLE_ROOT, 'basic-algorithm'))
+  const directory = path.join(packages.packageDirectory(pkg.id), '_self-tests')
+  await fs.mkdir(directory, { recursive: true })
+  const expanded = evaluationModelCallLimit({ version: 'v3-261012-d02-original300-v12', maxModelCalls: 3600,
+    parameters: { number: '02', role: 'defense', samples: 300 } }, 'defense')
+  for (const [poolLimit, modelCallLimit, accepted] of [[3600, expanded, 3600], [1200, expanded, 1200], [3600, undefined, 1000]]) {
+    const testId = randomUUID(), file = path.join(directory, testId + '.json')
+    const poolBinding = { poolId: 'original-d02-isolated', revision: 1, name: 'fixture', kind: 'llm', model: 'Qwen/Qwen3-8B',
+      modelVersion: 'fixture', baseUrl: upstreamUrl, credentialEnv: null, parameters: { maxCalls: poolLimit } }
+    await fs.writeFile(file, JSON.stringify({ id: testId, packageId: pkg.id, packageDigest: pkg.digest, phase: 'baseline',
+      configurationKey: 'fixture', status: 'running', calls: accepted! - 1, poolBinding, modelCallLimit }))
+    const auth = signScopedToken({ purpose: 'selftest', testId, packageId: pkg.id, packageDigest: pkg.digest, poolBinding, exp: Date.now() + 60000 })
+    const route = '/evaluation-self-test-gateway/' + testId + '/chat/completions'
+    const body = { messages: [{ role: 'user', content: 'local budget fixture' }] }
+    assert.equal((await request(route, post(body), auth)).status, 200)
+    assert.equal((await request(route, post(body), auth)).status, 400)
+    assert.equal(JSON.parse(await fs.readFile(file, 'utf8')).calls, accepted)
+  }
+})

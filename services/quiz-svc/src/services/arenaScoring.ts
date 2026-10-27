@@ -5,7 +5,12 @@ import type { ComposeEvaluationResult } from './composeJudge.js'
 import { RequestError } from '../lib/prdContract.js'
 import { studentFailureMessage } from './studentFailureMessage.js'
 import {
+  evaluationWorkerLane, evaluationDispatchEnabled, submissionEvaluationLane, nextEvaluationLaneTask,
+  taskIdsForEvaluationLane, type EvaluationWorkerLane,
+} from './evaluationLane.js'
+import {
   aggregateArenaResults,
+  arenaPoolKey,
   arenaScoreReachedAt,
   baselineQualified,
   compareSubmissionOrder,
@@ -78,7 +83,7 @@ async function serializable<T>(work: (tx: Prisma.TransactionClient) => Promise<T
 }
 
 function poolKey(snapshot: ArenaSnapshot) {
-  return { scenarioId: snapshot.scenarioId, evaluationVersion: snapshot.evaluationVersion }
+  return arenaPoolKey(snapshot)
 }
 
 function slotKey(snapshot: ArenaSnapshot, userId: string) {
@@ -172,7 +177,8 @@ export async function processArenaSubmission(submissionId: string): Promise<void
         submissionId,
         userId: submission.userId,
         questionId: submission.questionId,
-        ...poolKey(snapshot),
+        scenarioId: snapshot.scenarioId,
+        evaluationVersion: snapshot.evaluationVersion,
         role: snapshot.role,
       },
     })
@@ -184,7 +190,8 @@ export async function processArenaSubmission(submissionId: string): Promise<void
         id,
         submissionId,
         algorithmId: algorithm.id,
-        ...poolKey(snapshot),
+        scenarioId: snapshot.scenarioId,
+        evaluationVersion: snapshot.evaluationVersion,
         role: snapshot.role,
         kind: 'candidate',
         status: 'queued',
@@ -230,7 +237,12 @@ async function finishWithoutScore(
   })
 }
 
-async function processArenaEvaluation(jobId: string): Promise<void> {
+async function processArenaEvaluation(jobId: string, lane: EvaluationWorkerLane = evaluationWorkerLane()): Promise<void> {
+  if (!evaluationDispatchEnabled()) return
+  const pending = await prisma.arenaEvaluation.findUnique({ where: { id: jobId } })
+  if (!pending || pending.status !== 'queued') return
+  const owner = await prisma.submission.findUnique({ where: { id: pending.submissionId } })
+  if (!owner || submissionEvaluationLane(owner) !== lane || !evaluationDispatchEnabled()) return
   const claim = await prisma.arenaEvaluation.updateMany({
     where: { id: jobId, status: 'queued' },
     data: { status: 'running', attempts: { increment: 1 } },
@@ -423,7 +435,8 @@ async function processArenaEvaluation(jobId: string): Promise<void> {
       const scoreData = {
         userId: current.userId,
         questionId: current.questionId,
-        ...poolKey(snapshot),
+        scenarioId: snapshot.scenarioId,
+        evaluationVersion: snapshot.evaluationVersion,
         role: snapshot.role,
         score: aggregate.score,
         successCount: aggregate.successCount,
@@ -506,14 +519,13 @@ let drain: Promise<void> | null = null
 /** A bounded, persistent queue. A second process still needs the row claim. */
 export function drainArenaRecomputations(): Promise<void> {
   if (drain) return drain
+  if (!evaluationDispatchEnabled()) return Promise.resolve()
+  const lane = evaluationWorkerLane()
   drain = (async () => {
-    for (let count = 0; count < 100; count += 1) {
-      const task = await prisma.arenaEvaluation.findFirst({
-        where: { status: 'queued' },
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      })
+    for (let count = 0; count < 100 && evaluationDispatchEnabled(); count += 1) {
+      const task = await nextEvaluationLaneTask(prisma, 'arena', lane)
       if (!task) break
-      await processArenaEvaluation(task.id)
+      await processArenaEvaluation(task.id, lane)
     }
   })()
     .catch((error) => {
@@ -525,11 +537,19 @@ export function drainArenaRecomputations(): Promise<void> {
   return drain
 }
 
+export async function waitForArenaEvaluationIdle() { await drain }
+
 /** Resume queued jobs and reclaim abandoned attempts, without touching live workers. */
 export async function recoverArenaTasks(): Promise<void> {
+  if (!evaluationDispatchEnabled()) return
+  const lane = evaluationWorkerLane()
   const cutoff = new Date(Date.now() - 30 * 60 * 1000)
+  const stale = await prisma.arenaEvaluation.findMany({
+    where: { status: 'running', updatedAt: { lt: cutoff } }, select: { id: true, submissionId: true },
+  })
+  const staleIds = await taskIdsForEvaluationLane(prisma, stale, lane)
   await prisma.arenaEvaluation.updateMany({
-    where: { status: 'running', updatedAt: { lt: cutoff } },
+    where: { id: { in: staleIds }, status: 'running', updatedAt: { lt: cutoff } },
     data: { status: 'queued', error: '执行实例未继续更新，已恢复排队' },
   })
   await drainArenaRecomputations()
@@ -551,6 +571,7 @@ export async function invalidateArenaQuestionTx(
     // Post-publication cleanup must not retire a candidate already admitted on
     // the new revision between publication and this cleanup transaction.
     if (question && submission && isCurrentArenaSubmission(submission, question)) continue
+    const slots = await tx.arenaSlot.findMany({ where: { algorithmId: algorithm.id } })
     await tx.arenaSlot.deleteMany({ where: { algorithmId: algorithm.id } })
     await tx.arenaAlgorithm.update({ where: { id: algorithm.id }, data: { status: 'invalidated' } })
     const owner = await tx.user.findUnique({
@@ -559,11 +580,13 @@ export async function invalidateArenaQuestionTx(
     })
     // Test slots were never members of the formal pool, so retiring them cannot change it.
     if (owner?.isTestAccount) continue
-    const key = { scenarioId: algorithm.scenarioId, evaluationVersion: algorithm.evaluationVersion }
-    const identity = JSON.stringify(key)
-    const group = affectedPools.get(identity) ?? { ...key, roles: new Set<'attack' | 'defense'>() }
-    group.roles.add(algorithm.role as 'attack' | 'defense')
-    affectedPools.set(identity, group)
+    for (const slot of slots) {
+      const key = { scenarioId: slot.scenarioId, evaluationVersion: slot.evaluationVersion }
+      const identity = JSON.stringify(key)
+      const group = affectedPools.get(identity) ?? { ...key, roles: new Set<'attack' | 'defense'>() }
+      group.roles.add(algorithm.role as 'attack' | 'defense')
+      affectedPools.set(identity, group)
+    }
   }
   for (const group of affectedPools.values()) {
     const key = { scenarioId: group.scenarioId, evaluationVersion: group.evaluationVersion }
@@ -591,16 +614,19 @@ export async function invalidateArenaUserTx(tx: Prisma.TransactionClient, userId
     { scenarioId: string; evaluationVersion: string; roles: Set<'attack' | 'defense'> }
   >()
   for (const algorithm of algorithms) {
+    const slots = await tx.arenaSlot.findMany({ where: { algorithmId: algorithm.id } })
     await tx.arenaSlot.deleteMany({ where: { algorithmId: algorithm.id } })
     await tx.arenaAlgorithm.update({ where: { id: algorithm.id }, data: { status: 'invalidated' } })
-    const identity = JSON.stringify([algorithm.scenarioId, algorithm.evaluationVersion])
-    const group = groups.get(identity) ?? {
-      scenarioId: algorithm.scenarioId,
-      evaluationVersion: algorithm.evaluationVersion,
-      roles: new Set<'attack' | 'defense'>(),
+    for (const slot of slots) {
+      const identity = JSON.stringify([slot.scenarioId, slot.evaluationVersion])
+      const group = groups.get(identity) ?? {
+        scenarioId: slot.scenarioId,
+        evaluationVersion: slot.evaluationVersion,
+        roles: new Set<'attack' | 'defense'>(),
+      }
+      group.roles.add(algorithm.role as 'attack' | 'defense')
+      groups.set(identity, group)
     }
-    group.roles.add(algorithm.role as 'attack' | 'defense')
-    groups.set(identity, group)
   }
   for (const group of groups.values()) {
     const key = { scenarioId: group.scenarioId, evaluationVersion: group.evaluationVersion }

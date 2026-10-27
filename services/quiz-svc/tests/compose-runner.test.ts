@@ -392,6 +392,70 @@ test('gateway discovery uses its verified job-internal address, never its egress
     fs.rmSync(f.root, { recursive: true, force: true })
   }
 })
+
+test('the isolated relay supports only the full original D02 expanded call budget', async () => {
+  const f = await fixture()
+  try {
+    const source = path.join(f.root, 'gateway-budget-package')
+    fs.cpSync(path.join(EVALUATION_EXAMPLE_ROOT, 'basic-algorithm'), source, { recursive: true })
+    const manifest = JSON.parse(fs.readFileSync(path.join(source, 'manifest.json'), 'utf8'))
+    manifest.network = 'gateway'
+    fs.writeFileSync(path.join(source, 'manifest.json'), JSON.stringify(manifest))
+    const descriptor = await importEvaluationDirectory(source, f.packages)
+    for (const [samples, expected] of [[300, 3600], [20, 1000]]) {
+      const i: ComposeEvaluationInput = {
+        ...input(descriptor.id), role: 'defense',
+        parameters: { version: 'v3-261012-d02-original300-v12', maxModelCalls: 3600,
+          parameters: { number: '02', role: 'defense', samples } },
+        modelGateway: { url: 'http://host.docker.internal:4002/api/gateway', token: 'fixture' },
+      }
+      const base = mockExecutor(i, [])
+      const result = await runComposeEvaluation(i, {
+        packageRoot: f.packages, workspaceRoot: f.workspaces,
+        executor: async (binary, args, options) => {
+          if (args.includes('--no-deps'))
+            assert.equal(JSON.parse(fs.readFileSync(path.join(options.cwd, 'relay/context.json'), 'utf8')).maxCalls, expected)
+          return base(binary, args, options)
+        },
+      })
+      assert.equal(result.status, 'completed')
+      assert.equal(result.cleanupStatus, 'cleaned')
+    }
+  } finally { fs.rmSync(f.root, { recursive: true, force: true }) }
+})
+
+test('long D02 manifests cannot extend another evaluation beyond its ordinary deadline', async () => {
+  const f = await fixture()
+  try {
+    const source = path.join(f.root, 'original-d02-long-package')
+    fs.cpSync(path.join(EVALUATION_EXAMPLE_ROOT, 'basic-algorithm'), source, { recursive: true })
+    const manifest = JSON.parse(fs.readFileSync(path.join(source, 'manifest.json'), 'utf8'))
+    Object.assign(manifest, { network: 'gateway', phases: ['baseline', 'opponent'], executionProfile: 'd02-original300-v12' })
+    manifest.resources = { ...manifest.resources, timeoutMs: 86400000 }
+    fs.writeFileSync(path.join(source, 'manifest.json'), JSON.stringify(manifest))
+    const descriptor = await importEvaluationDirectory(source, f.packages)
+    for (const [samples, expected] of [[300, 86400000], [20, 3600000]]) {
+      const i: ComposeEvaluationInput = {
+        ...input(descriptor.id), role: 'defense', phase: 'baseline', timeoutMs: 86400000,
+        parameters: { version: 'v3-261012-d02-original300-v12', maxModelCalls: 3600, number: '02', role: 'defense', samples },
+        modelGateway: { url: 'http://host.docker.internal:4002/api/gateway', token: 'fixture' },
+      }
+      const base = mockExecutor(i, [])
+      const result = await runComposeEvaluation(i, {
+        packageRoot: f.packages, workspaceRoot: f.workspaces,
+        executor: async (binary, args, options) => {
+          if (args.includes('--no-deps')) {
+            assert.ok(options.timeoutMs > expected - 5000 && options.timeoutMs <= expected)
+            assert.equal(JSON.parse(fs.readFileSync(path.join(options.cwd, 'input/context.json'), 'utf8')).student.timeoutSeconds, expected / 1000)
+          }
+          return base(binary, args, options)
+        },
+      })
+      assert.equal(result.status, 'completed')
+      assert.equal(result.cleanupStatus, 'cleaned')
+    }
+  } finally { fs.rmSync(f.root, { recursive: true, force: true }) }
+})
 test('cleanup failures leave a bounded recovery journal and recover only that project', async () => {
   const f = await fixture()
   try {

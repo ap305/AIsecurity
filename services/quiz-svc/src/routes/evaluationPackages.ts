@@ -8,6 +8,7 @@ import { freezePoolBinding, callPoolWithResponseSnapshot } from '../services/api
 import { responseSnapshotContext, type ResponseSnapshotContext } from '../services/modelResponseSnapshot.js'
 import { normalizeCategory, normalizeDefinition, type PoolBinding } from '../lib/prdContract.js'
 import { selfTestConfigurationKey } from '../lib/selfTestContract.js'
+import { evaluationModelCallLimit } from '../lib/modelCallBudget.js'
 import {
   ARCHIVE_LIMITS,
   EVALUATION_EXAMPLE_ROOT,
@@ -43,6 +44,7 @@ export interface PackageSelfTest {
   configurationKey: string
   result?: ComposeEvaluationResult
   calls?: number
+  modelCallLimit?: number
   poolBinding?: PoolBinding
   responseSnapshot?: ResponseSnapshotContext
   upstreamCalls?: number
@@ -63,8 +65,8 @@ function saveTest(test: PackageSelfTest): void {
   fs.writeFileSync(tmp, JSON.stringify(test), { flag: 'wx', mode: 0o600 })
   fs.renameSync(tmp, target)
 }
-function publicTest(test: PackageSelfTest): Omit<PackageSelfTest, 'poolBinding' | 'responseSnapshot'> {
-  const { poolBinding: _binding, responseSnapshot: _snapshot, ...publicData } = test
+function publicTest(test: PackageSelfTest): Omit<PackageSelfTest, 'poolBinding' | 'responseSnapshot' | 'modelCallLimit'> {
+  const { poolBinding: _binding, responseSnapshot: _snapshot, modelCallLimit: _limit, ...publicData } = test
   return publicData
 }
 async function reserveSelfTestCall(
@@ -105,7 +107,9 @@ async function reserveSelfTestCall(
       else record.responseSnapshotHits = (record.responseSnapshotHits ?? 0) + 1
     } else {
       const maxCalls = Number(record.poolBinding.parameters.maxCalls ?? 32)
-      if ((record.calls ?? 0) >= Math.min(1000, maxCalls))
+      const cap = Number.isSafeInteger(record.modelCallLimit) && record.modelCallLimit! > 0
+        ? Math.min(record.modelCallLimit!, 3600) : 1000
+      if ((record.calls ?? 0) >= Math.min(cap, maxCalls))
         throw new PackageValidationError('自测模型调用额度已用完')
       record.calls = (record.calls ?? 0) + 1
     }
@@ -251,6 +255,7 @@ router.post('/admin/evaluation-packages/:id/self-tests', async (req, res) => {
       status: 'queued',
       phase: phase as ComposeEvaluationInput['phase'],
       calls: 0,
+      modelCallLimit: evaluationModelCallLimit(definition.evaluation, role ? String(role) : undefined),
       ...(definition.llm.enabled && responseSnapshotContext(definition, descriptor.digest)
         ? { responseSnapshot: responseSnapshotContext(definition, descriptor.digest)! } : {}),
     }

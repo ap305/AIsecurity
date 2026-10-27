@@ -120,6 +120,26 @@ async function apiFixture(f: ReturnType<typeof fixture>) {
   }
 }
 
+test('D02 original300 pairs only with its explicitly retained v11 attack pool', () => {
+  const f = fixture()
+  try {
+    const attack = f.manifest.questions.find(q => q.id === 'V3-261012-A02')!
+    const defense = f.manifest.questions.find(q => q.id === 'V3-261012-D02')!
+    attack.scenarioId = defense.scenarioId = 'V3-261012-02'
+    attack.definition.evaluation.version = 'v3-261012-response-snapshot4-v11'
+    defense.definition.evaluation = { ...defense.definition.evaluation,
+      version: 'v3-261012-d02-original300-v12', number: '02', role: 'defense', samples: 300,
+      parameters: { arenaPoolVersion: 'v3-261012-response-snapshot4-v11' } }
+    f.write()
+    assert.equal(loadCoursePack(f.manifestFile).manifest.questions.length, 77)
+    attack.definition.evaluation.version = 'arbitrary-version'; f.write()
+    assert.throws(() => loadCoursePack(f.manifestFile), /arena_pair_contract_mismatch/)
+    attack.definition.evaluation.version = 'v3-261012-response-snapshot4-v11'
+    defense.definition.evaluation.samples = 20; f.write()
+    assert.throws(() => loadCoursePack(f.manifestFile), /arena_pair_contract_mismatch/)
+  } finally { f.clean() }
+})
+
 test('V3 dry-run validates all 77 explicit IDs and performs no HTTP or writes', async () => {
   const f = fixture()
   try {

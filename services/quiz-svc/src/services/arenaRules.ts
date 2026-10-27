@@ -2,6 +2,30 @@ import crypto from 'node:crypto'
 
 export type ArenaRole = 'attack' | 'defense'
 
+export const D02_ORIGINAL_POOL_COMPATIBILITY = {
+  questionId: 'V3-261012-D02', scenarioId: 'V3-261012-02', role: 'defense', samples: 300,
+  evaluationVersion: 'v3-261012-d02-original300-v12',
+  poolVersion: 'v3-261012-response-snapshot4-v11',
+} as const
+
+/** Only the audited D02 restoration shares its existing A02 opponents; evidence keeps its actual version. */
+export function arenaPoolKey(identity: {
+  questionId: string; scenarioId: string; role: string | null; evaluationVersion: string; definition?: unknown
+}) {
+  const definition = typeof identity.definition === 'string' ? JSON.parse(identity.definition) : identity.definition
+  const evaluation = (definition as { evaluation?: Record<string, unknown> & { parameters?: Record<string, unknown> } } | undefined)?.evaluation
+  const { parameters: nested, ...topLevel } = evaluation ?? {}
+  const parameters = { ...nested, ...topLevel }
+  const override = parameters?.arenaPoolVersion
+  if (override === undefined) return { scenarioId: identity.scenarioId, evaluationVersion: identity.evaluationVersion }
+  const expected = D02_ORIGINAL_POOL_COMPATIBILITY
+  if (identity.questionId !== expected.questionId || identity.scenarioId !== expected.scenarioId ||
+      identity.role !== expected.role || identity.evaluationVersion !== expected.evaluationVersion ||
+      evaluation?.version !== expected.evaluationVersion || parameters?.samples !== expected.samples || override !== expected.poolVersion)
+    throw new Error('对手池兼容配置不属于已审计的 D02 原题恢复版本')
+  return { scenarioId: identity.scenarioId, evaluationVersion: expected.poolVersion }
+}
+
 export interface ArenaEvaluationConfig {
   packageId: string
   version?: string

@@ -16,6 +16,7 @@ import AdmZip from 'adm-zip'
 import { normalizeDefinition, type QuestionDefinition, type PoolBinding } from '../src/lib/prdContract.js'
 import { selfTestConfigurationKey } from '../src/lib/selfTestContract.js'
 import { ARCHIVE_LIMITS, decodeEvaluationArchive, safeRelativeName } from '../src/lib/evaluationPackage.js'
+import { arenaPoolKey } from '../src/services/arenaRules.js'
 
 export const COURSE_PACK_IDS = [
   ...Array.from({ length: 17 }, (_, n) => `V3-261012-B${String(n + 1).padStart(2, '0')}`),
@@ -203,7 +204,14 @@ export function loadCoursePack(manifestFile: string): { manifest: CoursePackMani
       validateMaterial(q.selfTest.opponent)
       const otherId = q.id.replace(/-(A|D)(\d+)$/, (_s, role, n) => `-${role === 'A' ? 'D' : 'A'}${n}`)
       const other = manifest.questions.find((row) => row.id === otherId)!
-      requireThat(other.scenarioId === q.scenarioId && other.definition?.evaluation?.version === q.definition.evaluation.version, 'arena_pair_contract_mismatch')
+      let compatible = false
+      try {
+        const pool = (row: CoursePackQuestion) => arenaPoolKey({ questionId: row.id,
+          scenarioId: row.scenarioId!, role: row.role, evaluationVersion: row.definition.evaluation.version,
+          definition: row.definition })
+        compatible = other.scenarioId === q.scenarioId && pool(other).evaluationVersion === pool(q).evaluationVersion
+      } catch { /* Invalid overrides cannot weaken the pair contract. */ }
+      requireThat(compatible, 'arena_pair_contract_mismatch')
     } else requireThat(!q.selfTest.opponent, 'basic_question_cannot_have_opponent')
     if (q.selfTest.minimumScore !== undefined) requireThat(basic && Number.isFinite(q.selfTest.minimumScore) && q.selfTest.minimumScore >= 0 && q.selfTest.minimumScore <= normalized.evaluation.maxScore, 'minimum_self_test_score_invalid')
     requireThat(Array.isArray(q.resources), 'resources_must_be_explicit')

@@ -3,10 +3,14 @@ import { prisma } from '../lib/db.js'
 import { parseJson, type SubmissionSnapshot } from '../lib/prdContract.js'
 import { recordBasicResult } from './basicScores.js'
 import { runComposeEvaluation } from './composeJudge.js'
-import { processArenaSubmission, recoverArenaTasks, configureArenaRuntime } from './arenaScoring.js'
+import { processArenaSubmission, recoverArenaTasks, configureArenaRuntime, waitForArenaEvaluationIdle } from './arenaScoring.js'
 import { submissionGateway } from './apiPool.js'
 import { transaction } from '../lib/transaction.js'
 import { studentFailureMessage } from './studentFailureMessage.js'
+import {
+  evaluationWorkerLane, evaluationDispatchEnabled, resumeEvaluationDispatch, stopEvaluationDispatch,
+  submissionEvaluationLane, nextEvaluationLaneTask, taskIdsForEvaluationLane,
+} from './evaluationLane.js'
 
 let running = false,
   enabled = false,
@@ -57,14 +61,19 @@ async function failAttempt(
 }
 
 export async function processEvaluationTask(id: string) {
+  const lane = evaluationWorkerLane()
+  if (!evaluationDispatchEnabled()) return
   const task = await transaction(async (tx) => {
+    const pending = await tx.evaluationTask.findUnique({ where: { id } })
+    if (!pending || pending.state !== 'queued') return null
+    const submission = await tx.submission.findUniqueOrThrow({ where: { id: pending.submissionId } })
+    if (submissionEvaluationLane(submission) !== lane || !evaluationDispatchEnabled()) return null
     const claimed = await tx.evaluationTask.updateMany({
       where: { id, state: 'queued' },
       data: { state: 'running', lockedAt: new Date(), attempts: { increment: 1 }, error: null },
     })
     if (!claimed.count) return null
     const task = await tx.evaluationTask.findUniqueOrThrow({ where: { id } })
-    const submission = await tx.submission.findUniqueOrThrow({ where: { id: task.submissionId } })
     if (submission.status === 'completed' && submission.score !== null) {
       await tx.evaluationTask.update({ where: { id }, data: { state: 'completed' } })
       return null
@@ -159,19 +168,22 @@ export async function processEvaluationTask(id: string) {
 }
 
 export async function drainEvaluationQueue() {
-  if (running) return
+  if (running || !evaluationDispatchEnabled()) return
+  const lane = evaluationWorkerLane()
   running = true
   try {
     // A heartbeat protects tasks still owned by another process; crashed jobs become retryable after two minutes.
+    const cutoff = new Date(Date.now() - 120000)
+    const stale = await prisma.evaluationTask.findMany({
+      where: { state: 'running', lockedAt: { lt: cutoff } }, select: { id: true, submissionId: true },
+    })
+    const staleIds = await taskIdsForEvaluationLane(prisma, stale, lane)
     await prisma.evaluationTask.updateMany({
-      where: { state: 'running', lockedAt: { lt: new Date(Date.now() - 120000) } },
+      where: { id: { in: staleIds }, state: 'running', lockedAt: { lt: cutoff } },
       data: { state: 'queued', error: '执行中断后恢复' },
     })
-    for (;;) {
-      const task = await prisma.evaluationTask.findFirst({
-        where: { state: 'queued' },
-        orderBy: { createdAt: 'asc' },
-      })
+    while (evaluationDispatchEnabled()) {
+      const task = await nextEvaluationLaneTask(prisma, 'submission', lane)
       if (!task) break
       if (task.attempts >= 3) {
         await prisma.evaluationTask.update({
@@ -190,6 +202,8 @@ export function wakeEvaluationWorker() {
   if (enabled) void drainEvaluationQueue().catch(() => console.error('[worker] queue unavailable'))
 }
 export async function startEvaluationWorker() {
+  evaluationWorkerLane()
+  resumeEvaluationDispatch()
   configureArenaRuntime({
     modelGateway: async (snapshot, id) => submissionGateway(snapshot as unknown as SubmissionSnapshot, id),
   })
@@ -204,5 +218,12 @@ export async function startEvaluationWorker() {
 }
 export function stopEvaluationWorker() {
   enabled = false
+  stopEvaluationDispatch()
   if (timer) clearInterval(timer)
+}
+
+/** Graceful worker-only shutdown leaves accepted rows queued and lets its current attempt finish. */
+export async function waitForEvaluationWorkerIdle() {
+  while (running) await new Promise(resolve => setTimeout(resolve, 25))
+  await waitForArenaEvaluationIdle()
 }

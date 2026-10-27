@@ -1,7 +1,7 @@
 import type { Prisma } from '@prisma/client'
 import { prisma } from '../lib/db.js'
 import { normalizeCategory, parseJson, RequestError } from '../lib/prdContract.js'
-import { isCurrentArenaSubmission } from './arenaRules.js'
+import { arenaPoolKey, isCurrentArenaSubmission } from './arenaRules.js'
 
 const studentSelect = {
   id: true,
@@ -215,12 +215,15 @@ async function questionScoresForStudents(db: Prisma.TransactionClient, userIds: 
       } else {
         eligible = question.status === 'published' && modern.length > 0
         updating = eligible && updating
+        const poolVersion = question.scenarioId
+          ? arenaPoolKey({ ...question, questionId: question.id, scenarioId: question.scenarioId }).evaluationVersion
+          : question.evaluationVersion
         const slot = slots.find(
           (s) =>
             s.userId === userId &&
             s.scenarioId === question.scenarioId &&
             s.role === question.role &&
-            s.evaluationVersion === question.evaluationVersion,
+            s.evaluationVersion === poolVersion,
         )
         const algorithm = slot && algorithmById.get(slot.algorithmId)
         const active = algorithm && submissionById.get(algorithm.submissionId)

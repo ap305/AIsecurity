@@ -1,3 +1,5 @@
+import { isOriginalD02Evaluation, ORIGINAL_D02_TIMEOUT_MS } from './modelCallBudget.js'
+
 export interface QuestionDefinition {
   kind: 'algorithm' | 'model' | 'distillation' | 'agent'
   weights: {
@@ -109,9 +111,10 @@ export function normalizeDefinition(raw: unknown): QuestionDefinition {
   if (
     !Number.isSafeInteger(definition.evaluation.timeoutMs) ||
     definition.evaluation.timeoutMs < 1000 ||
-    definition.evaluation.timeoutMs > 3600000
+    definition.evaluation.timeoutMs > (isOriginalD02Evaluation(definition.evaluation) ? ORIGINAL_D02_TIMEOUT_MS : 3600000)
   )
-    throw new RequestError('评测超时必须在 1 秒至 1 小时内')
+    throw new RequestError(isOriginalD02Evaluation(definition.evaluation)
+      ? '原始300样本D02评测超时必须在 1 秒至 24 小时内' : '评测超时必须在 1 秒至 1 小时内')
   if (
     !Number.isFinite(definition.evaluation.baselineThreshold) ||
     !Number.isFinite(definition.evaluation.successThreshold)

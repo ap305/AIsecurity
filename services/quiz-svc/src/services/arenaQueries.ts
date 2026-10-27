@@ -1,5 +1,5 @@
 import { prisma } from '../lib/db.js'
-import { isCurrentArenaSubmission } from './arenaRules.js'
+import { arenaPoolKey, isCurrentArenaSubmission } from './arenaRules.js'
 
 export async function arenaQuestionScore(questionId: string, userId: string) {
   const question = await prisma.question.findUnique({ where: { id: questionId } })
@@ -15,9 +15,8 @@ export async function arenaQuestionScore(questionId: string, userId: string) {
     where: {
       userId_scenarioId_role_evaluationVersion: {
         userId,
-        scenarioId: question.scenarioId,
+        ...arenaPoolKey({ ...question, questionId: question.id, scenarioId: question.scenarioId }),
         role: question.role,
-        evaluationVersion: question.evaluationVersion,
       },
     },
   })
@@ -127,8 +126,7 @@ export async function arenaQuestionLeaderboard(questionId: string, limit = 100) 
     return null
   const slots = await prisma.arenaSlot.findMany({
     where: {
-      scenarioId: question.scenarioId,
-      evaluationVersion: question.evaluationVersion,
+      ...arenaPoolKey({ ...question, questionId: question.id, scenarioId: question.scenarioId }),
       role: question.role,
     },
   })

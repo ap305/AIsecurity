@@ -15,6 +15,7 @@ import build_prompts
 from bot_runtime import BOT_IDS, load_course, API_EVALUATION_VERSION, GATEWAY_TRANSPORT_POLICY
 from prompt_runtime import PROMPT_IDS
 from rankshift_reference import POLICY as CLEAN_REFERENCE_POLICY, VERSION as CLEAN_REFERENCE_VERSION, repair_reference
+import rankshift_original
 from text_tool_boundary import (POLICY as TEXT_TOOL_POLICY, VERSION as TEXT_TOOL_VERSION,
                                 SUPPORTED_NUMBERS as TEXT_TOOL_NUMBERS, entrypoint_source)
 from native_tool_boundary import (POLICY as NATIVE_TOOL_POLICY, VERSION as NATIVE_TOOL_VERSION,
@@ -96,7 +97,7 @@ def public_bundle(package, course, target):
 
 def build(source_root, output, image, bigram_checkpoint, watermark_reference_config=None,
           numbers=None, watermark_private_order_key=None, watermark_relative_judge=False,
-          rankshift_clean_passthrough=False):
+          rankshift_clean_passthrough=False, rankshift_original_defense=False):
     watermark_reference_config = build_classes.watermark_reference_config(watermark_reference_config)
     numbers = tuple(NUMBERS if numbers is None else numbers)
     if not numbers or len(set(numbers)) != len(numbers) or any(number not in NUMBERS for number in numbers):
@@ -107,6 +108,8 @@ def build(source_root, output, image, bigram_checkpoint, watermark_reference_con
         raise ValueError("Relative watermark judgment requires course 03")
     if rankshift_clean_passthrough and '02' not in numbers:
         raise ValueError('Empty-injection reference repair requires course 02')
+    if rankshift_original_defense and '02' not in numbers:
+        raise ValueError('Original D02 evaluation restoration requires course 02')
     source_root, output = pathlib.Path(source_root), pathlib.Path(output)
     if output.exists() and any(output.iterdir()):
         raise ValueError("Build output must be empty; published packages cannot be overwritten")
@@ -131,14 +134,26 @@ def build(source_root, output, image, bigram_checkpoint, watermark_reference_con
             else:
                 path.write_text(reference, encoding="utf8")
             references[role] = {"codePath": path.relative_to(output).as_posix(), "codeSha256": sha(path)}
+        original_d02_reference = None
+        if rankshift_original_defense and number == '02':
+            # A02 keeps its existing opponent reference, including an opted-in v5 repair.
+            original_code = courses['defense'] / 'backend/code'
+            for name, expected in rankshift_original.ORIGINAL_HASHES.items():
+                if sha(original_code / name) != expected:
+                    raise ValueError('Uploaded original D02 source differs: ' + name)
+            path = output / 'references/D02-original.py'
+            path.write_bytes(rankshift_original.reference_source((original_code / 'defense.py').read_bytes()).encode('utf8'))
+            original_d02_reference = {"codePath": path.relative_to(output).as_posix(), "codeSha256": sha(path)}
         for role, course in courses.items():
+            restored_d02 = rankshift_original_defense and number == '02' and role == 'defense'
             problem = json.loads((course / "problem.json").read_text(encoding="utf-8-sig"))
             source_id, question_id = problem["id"], PACK_ID + "-" + problem["id"]
             package = output / "packages" / source_id
             if number in BOT_IDS:
                 built, runtime = build_bots.build_pair(source_root, number, role, package), "bot_runtime"
             elif number in PROMPT_IDS:
-                built, runtime = build_prompts.build_pair(source_root, number, role, package), "prompt_runtime"
+                built, runtime = build_prompts.build_pair(source_root, number, role, package,
+                    samples=rankshift_original.SAMPLES if restored_d02 else 20), "prompt_runtime"
             else:
                 built, runtime = build_classes.build_pair(source_root, number, role, package,
                                   bigram_checkpoint=bigram_checkpoint, private_order_key=private_order_key,
@@ -164,6 +179,9 @@ def build(source_root, output, image, bigram_checkpoint, watermark_reference_con
                 "rpc": {"maxRequestBytes": 4194304, "maxResponseBytes": 4194304, "maxArrayBytes": 1048576, "maxCalls": 50000, "maxObjects": 64},
                 "worker": built["worker"],
             }
+            if restored_d02:
+                environment['executionProfile'] = rankshift_original.EXECUTION_PROFILE
+                environment['resources']['timeoutMs'] = rankshift_original.TIMEOUT_MS
             write_json(package / "manifest.json", environment)
             (package / "compose.yaml").write_text("services:\n  evaluator:\n    image: " + json.dumps(image) + "\n", encoding="utf8")
             resources = output / "resources" / question_id
@@ -200,6 +218,9 @@ def build(source_root, output, image, bigram_checkpoint, watermark_reference_con
                 prefix += ("**已确认的裁判澄清**：比较候选相对原文保留了多少信息，只扣除攻击新增的事实改变、含义损失、无关添加、遗漏或流畅度退化；原文自身已有缺陷不作为攻击损伤。仍使用原8B模型、40条样本及全部原硬门槛，逐字原文仅作控制实验，不是最终攻击参考。\n\n")
             pool_key = PACK_ID + "-API-" + number
             parameters = {**built["frozen"], "maxModelCalls": 1000}
+            if restored_d02:
+                pool_key = rankshift_original.POOL_KEY
+                parameters['maxModelCalls'] = rankshift_original.MAX_MODEL_CALLS
             effective_samples = built["frozen"]["samples"] // 2 if number == "08" else built["frozen"]["samples"]
             if number in ("27", "28"):
                 effective_samples = len(load_course(package / "course").dataset.secret_spans())
@@ -214,25 +235,30 @@ def build(source_root, output, image, bigram_checkpoint, watermark_reference_con
                 floor_reason = "One success in the fixed effective sample count; a conservative positive lower bound, only for an exactly zero reference."
             definition = {"kind": "agent", "weights": {"enabled": False, "required": False, "extensions": [".pt"], "maxBytes": 1048576},
                           "teacherApi": {"enabled": False}, "llm": {"enabled": True, "poolId": "$llm"},
-                          "evaluation": {"version": CUMULATIVE_VERSION if number == '27' else CITATION_VERSION if number == '28' else NATIVE_TOOL_VERSION if number in NATIVE_TOOL_NUMBERS else TEXT_TOOL_VERSION if number in TEXT_TOOL_NUMBERS else CLEAN_REFERENCE_VERSION if rankshift_clean_passthrough and number == '02' else API_EVALUATION_VERSION, "timeoutMs": 3600000, "maxScore": 100,
+                          "evaluation": {"version": rankshift_original.VERSION if restored_d02 else CUMULATIVE_VERSION if number == '27' else CITATION_VERSION if number == '28' else NATIVE_TOOL_VERSION if number in NATIVE_TOOL_NUMBERS else TEXT_TOOL_VERSION if number in TEXT_TOOL_NUMBERS else CLEAN_REFERENCE_VERSION if rankshift_clean_passthrough and number == '02' else API_EVALUATION_VERSION, "timeoutMs": 3600000, "maxScore": 100,
                                          "baselineMetric": "qualificationMetric", "baselineThreshold": None,
                                          "successMetric": "successMetric", "successThreshold": None, "repetitions": 1, **parameters}}
+            if restored_d02:
+                definition['evaluation'] = rankshift_original.evaluation(definition['evaluation'])
             manifest["questions"].append({"id": question_id, "sourceId": source_id, "title": problem["title"] + ("（攻击）" if role == "attack" else "（防御）"),
                 "moduleCode": "AI_API_V3", "number": int(number), "difficulty": "L3", "type": "code", "category": "adversarial",
-                "scenarioId": PACK_ID + "-" + number, "role": role, "content": prefix + content,
+                "scenarioId": PACK_ID + "-" + number, "role": role, "content": rankshift_original.question_content(prefix + content) if restored_d02 else prefix + content,
                 "answerTemplate": (course / "student" / "blank.py").read_text(encoding="utf-8-sig"), "definition": definition,
                 "packageKey": source_id, "poolKey": pool_key, "requiresCalibration": True,
                 "gatewayTransportPolicy": dict(GATEWAY_TRANSPORT_POLICY),
                 "minimumPositiveSuccessThreshold": positive_floor, "minimumPositiveSuccessReason": floor_reason,
                 "effectiveSampleCount": effective_samples,
-                "selfTest": {**references[role], "opponent": references["defense" if role == "attack" else "attack"]},
+                "selfTest": {**(original_d02_reference if restored_d02 else references[role]), "opponent": references["defense" if role == "attack" else "attack"]},
                 "resources": [{"sourcePath": file.relative_to(output).as_posix(), "filename": file.name, "sha256": sha(file)} for file in files_under(resources)]})
             if reference_calibration:
                 manifest["questions"][-1]["officialReferenceConfiguration"] = reference_calibration
             if judge_clarification:
                 manifest["questions"][-1]["judgeClarification"] = judge_clarification
-            if rankshift_clean_passthrough and number == '02':
+            if rankshift_clean_passthrough and number == '02' and not restored_d02:
                 manifest['questions'][-1]['officialReferenceRepair'] = dict(CLEAN_REFERENCE_POLICY)
+            if restored_d02:
+                manifest['questions'][-1]['originalEvaluationRestoration'] = dict(rankshift_original.POLICY)
+                rankshift_original.restore_metadata(manifest['questions'][-1])
             if number in TEXT_TOOL_NUMBERS:
                 manifest['questions'][-1]['textToolProtocolBoundary'] = dict(TEXT_TOOL_POLICY)
             if number in NATIVE_TOOL_NUMBERS:
@@ -243,11 +269,14 @@ def build(source_root, output, image, bigram_checkpoint, watermark_reference_con
                 manifest['questions'][-1]['cumulativeReferenceRepair'] = dict(CUMULATIVE_POLICY)
             manifest["packages"].append({"key": source_id, "directory": package.relative_to(output).as_posix(),
                 "files": [{"path": file.relative_to(package).as_posix(), "sha256": sha(file)} for file in files_under(package)]})
-            if role == "attack":
+            if role == "attack" or restored_d02:
                 pools.append({"poolKey": pool_key, "kind": "llm", "questionIds": [PACK_ID + "-A" + number, PACK_ID + "-D" + number],
-                              "parameters": {**built["modelParameters"], "maxCalls": 1000},
+                              "parameters": {**built["modelParameters"], "maxCalls": rankshift_original.MAX_MODEL_CALLS if restored_d02 else 1000},
                               "requiresExactModelAndVersion": True, "allowsTrustedDynamicSystem": "systemPrompt" not in built["modelParameters"],
                               "workerNetwork": "none"})
+                if restored_d02:
+                    pools[-1]['questionIds'] = [question_id]
+                    next(pool for pool in pools if pool['poolKey'] == PACK_ID + '-API-02')['questionIds'] = [PACK_ID + '-A02']
     write_json(output / "manifest.json", manifest)
     write_json(output / "api-pools.json", {"schemaVersion": 1, "pools": pools})
     return manifest
@@ -265,9 +294,12 @@ if __name__ == "__main__":
                         help="Apply the approved relative-preservation clarification to A03/D03 only; requires fresh real 8B calibration")
     parser.add_argument('--rankshift-clean-passthrough', action='store_true',
                         help='Explicit D02 empty-injection reference repair; both 02 questions require fresh real calibration')
+    parser.add_argument('--rankshift-original-defense', action='store_true',
+                        help='Restore only D02 to original author defense and 150+150 samples; requires fresh calibration')
     args = parser.parse_args()
     configuration = json.loads(args.watermark_reference_config.read_text(encoding="utf-8-sig")) if args.watermark_reference_config else None
     result = build(args.source, args.output, args.image, args.bigram, watermark_reference_config=configuration,
                    watermark_relative_judge=args.watermark_relative_judge,
-                   rankshift_clean_passthrough=args.rankshift_clean_passthrough)
+                   rankshift_clean_passthrough=args.rankshift_clean_passthrough,
+                   rankshift_original_defense=args.rankshift_original_defense)
     print(json.dumps({"questions": len(result["questions"]), "packages": len(result["packages"]), "requiresCalibration": True}))
