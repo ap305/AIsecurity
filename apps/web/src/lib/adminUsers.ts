@@ -7,6 +7,7 @@ export interface AdminUser {
   role: string
   tier: string
   school: string
+  studentId?: string | null
   createdAt: string
   isTestAccount: boolean
   accountStatus: 'active' | 'disabled' | 'deleted'

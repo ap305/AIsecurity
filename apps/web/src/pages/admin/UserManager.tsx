@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { apiDelete, apiGet, apiPut } from '../../lib/api'
 import {
@@ -10,6 +10,7 @@ import {
   type TestAccountForm,
 } from '../../lib/adminUsers'
 import TestAccountCreateForm from './TestAccountCreateForm'
+import { defaultAdminUserFilters, filterAdminUsers, type AdminUserFilters } from '../../lib/adminUserFilters'
 
 const thStyle: React.CSSProperties = {
   padding: '12px 16px',
@@ -23,6 +24,13 @@ const thStyle: React.CSSProperties = {
 
 export default function UserManager() {
   const [users, setUsers] = useState<AdminUser[]>([])
+  const [filters, setFilters] = useState<AdminUserFilters>(defaultAdminUserFilters)
+  const visibleUsers = useMemo(() => filterAdminUsers(users, filters), [users, filters])
+  const hasActiveFilters =
+    filters.keyword !== '' ||
+    filters.accountType !== 'all' ||
+    filters.role !== 'all' ||
+    filters.status !== 'all'
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -207,6 +215,115 @@ export default function UserManager() {
         </div>
       )}
 
+      <section
+        aria-label="账号筛选"
+        style={{
+          marginBottom: 16,
+          padding: 16,
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border-color)',
+          borderRadius: 8,
+        }}
+      >
+        <div
+          role="search"
+          style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}
+        >
+          <div>
+            <label htmlFor="user-filter-keyword">搜索账号</label>
+            <input
+              id="user-filter-keyword"
+              type="search"
+              className="form-input"
+              value={filters.keyword}
+              placeholder="用户名、姓名、学校或学号"
+              autoComplete="off"
+              onChange={(event) => setFilters((current) => ({ ...current, keyword: event.target.value }))}
+            />
+          </div>
+          <div>
+            <label htmlFor="user-filter-account-type">账号类型</label>
+            <select
+              id="user-filter-account-type"
+              className="form-input"
+              value={filters.accountType}
+              onChange={(event) =>
+                setFilters((current) => ({
+                  ...current,
+                  accountType: event.target.value as AdminUserFilters['accountType'],
+                }))
+              }
+            >
+              <option value="all">全部账号</option>
+              <option value="regular">正式账号</option>
+              <option value="test">测试账号</option>
+            </select>
+          </div>
+          <div>
+            <label htmlFor="user-filter-role">角色</label>
+            <select
+              id="user-filter-role"
+              className="form-input"
+              value={filters.role}
+              onChange={(event) =>
+                setFilters((current) => ({
+                  ...current,
+                  role: event.target.value as AdminUserFilters['role'],
+                }))
+              }
+            >
+              <option value="all">全部角色</option>
+              <option value="admin">管理员</option>
+              <option value="student">学员</option>
+            </select>
+          </div>
+          <div>
+            <label htmlFor="user-filter-status">账号状态</label>
+            <select
+              id="user-filter-status"
+              className="form-input"
+              value={filters.status}
+              onChange={(event) =>
+                setFilters((current) => ({
+                  ...current,
+                  status: event.target.value as AdminUserFilters['status'],
+                }))
+              }
+            >
+              <option value="all">全部状态</option>
+              <option value="active">已启用</option>
+              <option value="disabled">已停用</option>
+            </select>
+          </div>
+        </div>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 12,
+            marginTop: 12,
+          }}
+        >
+          <p
+            role="status"
+            aria-live="polite"
+            style={{ margin: 0, fontSize: 12, color: 'var(--text-secondary)' }}
+          >
+            {loading ? '正在加载账号…' : `显示 ${visibleUsers.length} / ${users.length} 个账号`}
+          </p>
+          <button
+            type="button"
+            className="prd-button"
+            disabled={!hasActiveFilters}
+            onClick={() => setFilters(defaultAdminUserFilters())}
+          >
+            重置筛选
+          </button>
+        </div>
+      </section>
+
       {loading ? (
         <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)' }}>加载用户中...</div>
       ) : users.length === 0 ? (
@@ -220,6 +337,20 @@ export default function UserManager() {
           }}
         >
           <p style={{ fontSize: 14, color: 'var(--text-muted)' }}>暂无注册用户</p>
+        </div>
+      ) : visibleUsers.length === 0 ? (
+        <div
+          style={{
+            padding: 40,
+            textAlign: 'center',
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border-color)',
+            borderRadius: 8,
+          }}
+        >
+          <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>
+            没有符合筛选条件的账号，请调整条件或重置筛选。
+          </p>
         </div>
       ) : (
         <div
@@ -246,7 +377,7 @@ export default function UserManager() {
               </tr>
             </thead>
             <tbody>
-              {users.map((u) => (
+              {visibleUsers.map((u) => (
                 <tr key={u.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                   <td style={{ padding: '12px 16px' }}>
                     <span
