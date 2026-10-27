@@ -29,15 +29,15 @@
 
 ### Task 1: Source restoration and regression checks
 
-- [ ] Write failing builder/runtime tests for D02 full sample scope and original reference source.
-- [ ] Apply the smallest D02-specific builder/config change, preserving original course files and other questions.
-- [ ] Correct the misleading scoring direction and disclose full samples/reference in D02 presentation.
-- [ ] Run focused regression tests and independent diff review; record immutable package/source hashes.
+- [x] Write failing builder/runtime tests for D02 full sample scope and original reference source.
+- [x] Apply the smallest D02-specific builder/config change, preserving original course files and other questions.
+- [x] Correct the misleading scoring direction and disclose full samples/reference in D02 presentation.
+- [x] Run focused regression tests and independent diff review; record immutable package/source hashes.
 
 ### Task 2: Independent calibration and acceptance
 
-- [ ] Inspect live containers, queues and existing clone tooling read-only; select an isolated worker/DB and valid normal admin session.
-- [ ] Build D02-only candidate without altering production bindings.
+- [x] Inspect live containers, queues and existing clone tooling read-only; select an isolated worker/DB and valid normal admin session.
+- [x] Build D02-only candidate without altering production bindings.
 - [ ] Run original reference baseline/opponent calibration using existing 8B pool; keep all gates and failure evidence.
 - [ ] Freeze measured thresholds, then run new genuine final self-tests and student-path acceptance for the frozen candidate.
 
