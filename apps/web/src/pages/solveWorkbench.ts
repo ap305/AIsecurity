@@ -46,6 +46,8 @@ export function submissionPhaseLabel(submission: SubmissionRecord | null): strin
     passed: '评测完成',
     completed: '评测完成',
     failed: '评测完成',
+    baseline_failed: '未过基线',
+    stale: '旧版本已失效',
     error: '评测异常',
     timeout: '评测超时',
     cancelled: '已取消',

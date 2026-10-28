@@ -268,7 +268,7 @@ export function normalizeQuestion(raw: QuestionRecord): QuestionRecord {
   }
 }
 export function isTerminal(status: string): boolean {
-  return ['passed', 'failed', 'error', 'completed', 'cancelled', 'timeout'].includes(status)
+  return ['passed', 'failed', 'error', 'completed', 'cancelled', 'timeout', 'baseline_failed', 'stale'].includes(status)
 }
 export function statusLabel(status?: string): string {
   const labels: Record<string, string> = {

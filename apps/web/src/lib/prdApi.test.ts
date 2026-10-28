@@ -117,3 +117,19 @@ test('serialized results are parsed safely and queue/baseline phases are not ter
   for (const status of ['completed', 'error', 'failed', 'passed', 'timeout'])
     assert.equal(isTerminal(status), true)
 })
+
+test('an unqualified or stale submission is finished even without a numeric score', () => {
+  for (const status of ['baseline_failed', 'stale']) {
+    const submission = {
+      id: 'finished-without-score',
+      questionId: 'Q',
+      status,
+      score: null,
+      createdAt: '2026-10-28T00:00:00Z',
+      result: { qualified: false, counted: false },
+    } as SubmissionRecord
+    assert.equal(isTerminal(submission.status), true, status)
+    assert.equal(submission.score, null)
+    assert.equal(dynamicSummary(submission).qualified, false)
+  }
+})

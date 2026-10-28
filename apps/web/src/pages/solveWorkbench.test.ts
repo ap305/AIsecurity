@@ -56,6 +56,17 @@ test('workbench distinguishes an active phase from the final evaluation outcome'
   assert.equal(submissionPhaseLabel(null), '尚未提交')
 })
 
+test('unqualified and obsolete outcomes take precedence over their last active phase', () => {
+  assert.equal(
+    submissionPhaseLabel({ status: 'baseline_failed', phase: 'baseline' } as SubmissionRecord),
+    '未过基线',
+  )
+  assert.equal(
+    submissionPhaseLabel({ status: 'stale', phase: 'opponents' } as SubmissionRecord),
+    '旧版本已失效',
+  )
+})
+
 test('return navigation preserves filters only within the same local hall', () => {
   assert.equal(hallReturnLocation('/?difficulty=L2&page=3', false), '/?difficulty=L2&page=3')
   assert.equal(
