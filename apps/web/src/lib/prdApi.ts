@@ -154,6 +154,7 @@ export interface ApiPoolItem {
 export interface TeacherLease {
   id: string
   state: string
+  questionVersion?: number
   startsAt?: string | null
   expiresAt?: string | null
   serverTime: string
@@ -384,13 +385,13 @@ export const prdApi = {
   question: async (id: string) =>
     normalizeQuestion(await apiGet<QuestionRecord>(`/questions/${encodeURIComponent(id)}`)),
   history: (id: string) => apiGet<SubmissionRecord[]>(`/questions/${encodeURIComponent(id)}/submissions`),
-  submission: (id: string) => apiGet<SubmissionRecord>(`/submissions/${encodeURIComponent(id)}`),
+  submission: (id: string) => apiGet<SubmissionRecord>(`/submissions/${encodeURIComponent(id)}`, 30000),
   pool: () => apiGet<ApiPoolItem[]>('/admin/api-pool'),
   savePool: (body: Partial<ApiPoolItem>, id?: string) =>
     id
       ? apiPut<ApiPoolItem>(`/admin/api-pool/${encodeURIComponent(id)}`, body)
       : apiPost<ApiPoolItem>('/admin/api-pool', body),
-  lease: (id: string) => apiGet<TeacherLease | null>(`/questions/${encodeURIComponent(id)}/teacher-lease`),
+  lease: (id: string) => apiGet<TeacherLease | null>(`/questions/${encodeURIComponent(id)}/teacher-lease`, 30000),
   startLease: (id: string) =>
     apiPost<TeacherLease>(`/questions/${encodeURIComponent(id)}/teacher-lease/start`, {}),
   renewLease: (id: string) =>
@@ -442,6 +443,7 @@ export function submitMaterials(
       if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100))
     }
     request.onerror = () => reject(new Error('提交连接中断，可重新点击提交重试；系统会避免重复受理。'))
+    request.onabort = () => reject(new Error('上传已中断，可使用同一份材料重试；系统会避免重复受理。'))
     request.ontimeout = () =>
       reject(new Error('上传或受理等待超时，请先检查提交记录，再使用同一份材料重试。'))
     request.onload = () => {

@@ -34,6 +34,57 @@ test('failed API actions preserve the server message and gateway errors remain e
   await assert.rejects(apiGet('/fixture'), /502/)
 })
 
+test('HTTP failures retain their status so a missing task is not retried like an outage', async (t) => {
+  for (const status of [401, 403, 404, 503]) {
+    const mocked = t.mock.method(globalThis, 'fetch', async () =>
+      Response.json({ code: 40001, message: '查询失败', data: null }, { status }),
+    )
+    await assert.rejects(apiGet('/submissions/task'), (error: unknown) => {
+      assert.ok(error instanceof Error)
+      assert.equal((error as Error & { status?: number }).status, status)
+      assert.match(error.message, /查询失败/)
+      return true
+    })
+    mocked.mock.restore()
+  }
+})
+
+test('a bounded progress read aborts a stalled response instead of keeping the form locked indefinitely', async (t) => {
+  let aborted = false
+  t.mock.method(globalThis, 'fetch', async (_url: string, options?: RequestInit) =>
+    new Promise<Response>((_resolve, reject) => {
+      options?.signal?.addEventListener('abort', () => {
+        aborted = true
+        reject(new DOMException('Timed out', 'AbortError'))
+      }, { once: true })
+    }),
+  )
+  const outcome = await Promise.race([
+    apiGet('/submissions/task', 5).then(() => 'resolved', () => 'rejected'),
+    new Promise<string>((resolve) => setTimeout(() => resolve('pending'), 40)),
+  ])
+  assert.equal(outcome, 'rejected')
+  assert.equal(aborted, true)
+})
+
+test('an aborted upload rejects so its caller can leave the uploading state and retry safely', async (t) => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'XMLHttpRequest')
+  class AbortedRequest {
+    upload = {}
+    onabort?: () => void
+    open() {}
+    setRequestHeader() {}
+    send() { queueMicrotask(() => this.onabort?.()) }
+  }
+  Object.defineProperty(globalThis, 'XMLHttpRequest', { configurable: true, value: AbortedRequest })
+  t.after(() => previous ? Object.defineProperty(globalThis, 'XMLHttpRequest', previous) : Reflect.deleteProperty(globalThis, 'XMLHttpRequest'))
+  const outcome = await Promise.race([
+    submitMaterials(new FormData(), () => {}).then(() => 'resolved', () => 'rejected'),
+    new Promise<string>((resolve) => setTimeout(() => resolve('pending'), 40)),
+  ])
+  assert.equal(outcome, 'rejected')
+})
+
 test('submission upload rejects missing acceptance IDs and handles timeout', async (t) => {
   const previous = Object.getOwnPropertyDescriptor(globalThis, 'XMLHttpRequest')
   let payload: unknown = { code: 0 }

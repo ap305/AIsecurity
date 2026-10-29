@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { prdApi, type TeacherLease } from '../../lib/prdApi'
+import { teacherLeaseControls } from '../../components/TeacherLeasePanel'
 export default function TeacherLeaseManager() {
   const [leases, setLeases] = useState<TeacherLease[]>([])
   const [filter, setFilter] = useState('')
@@ -96,7 +97,7 @@ export default function TeacherLeaseManager() {
                   <td>
                     <button
                       className="prd-button danger"
-                      disabled={busy || !['active', 'preparing'].includes(lease.state)}
+                      disabled={busy || !teacherLeaseControls(lease.state).canRevoke}
                       onClick={() => void revoke(lease)}
                     >
                       撤销

@@ -1,4 +1,11 @@
 import { isTerminal, type QuestionRecord, type SubmissionRecord } from '../lib/prdApi'
+import { ApiError } from '../lib/api'
+
+export function submissionPollingFailure(error: unknown): 'missing' | 'sign_in' | 'retry' {
+  if (error instanceof ApiError && error.status === 404 && error.code === 40001) return 'missing'
+  if (error instanceof ApiError && [401, 403].includes(error.status)) return 'sign_in'
+  return 'retry'
+}
 
 export function draftStorageKey(userId: string | undefined, questionId: string, revision: number) {
   return `prd_draft_${userId ?? 'unknown'}_${questionId}_${revision}`

@@ -2,15 +2,37 @@ import { useEffect, useRef, useState } from 'react'
 import { prdApi, type TeacherLease } from '../lib/prdApi'
 
 const labels: Record<string, string> = {
+  creating: '教师服务准备中（尚未开始计时）',
   preparing: '教师服务准备中（尚未开始计时）',
   active: '可用',
   expired: '已到期',
   revoked: '已撤销',
   error: '服务异常',
   idle: '尚未开启',
+  not_started: '尚未开启',
   unavailable: '教师服务未就绪',
 }
-export default function TeacherLeasePanel({ questionId }: { questionId: string }) {
+
+export function teacherLeaseControls(state = 'idle', leaseVersion?: number, questionVersion?: number) {
+  const isCurrentVersion =
+    leaseVersion == null || questionVersion == null || leaseVersion === questionVersion
+  if (!isCurrentVersion) state = 'not_started'
+  return {
+    label: labels[state] ?? state,
+    isCurrentVersion,
+    canStart: ['not_started', 'idle', 'error', 'unavailable'].includes(state),
+    canRenew: state === 'expired',
+    canRevoke: ['active', 'creating', 'preparing'].includes(state),
+  }
+}
+
+export default function TeacherLeasePanel({
+  questionId,
+  questionVersion,
+}: {
+  questionId: string
+  questionVersion?: number
+}) {
   const [lease, setLease] = useState<TeacherLease | null>(null)
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -53,11 +75,16 @@ export default function TeacherLeasePanel({ questionId }: { questionId: string }
       clearInterval(timer)
       clearInterval(statusTimer)
     }
-  }, [questionId])
+  }, [questionId, questionVersion])
   const remaining = lease?.expiresAt ? Math.max(0, Math.ceil((Date.parse(lease.expiresAt) - now) / 1000)) : 0
   const expired =
     lease?.state === 'expired' || (lease?.state === 'active' && !!lease.expiresAt && remaining === 0)
-  const canStart = !lease || ['idle', 'error', 'unavailable'].includes(lease.state)
+  const controls = teacherLeaseControls(
+    expired ? 'expired' : lease?.state,
+    lease?.questionVersion,
+    questionVersion,
+  )
+  const currentLease = controls.isCurrentVersion ? lease : null
   const perform = async (renew: boolean) => {
     setBusy(true)
     setError('')
@@ -89,46 +116,47 @@ export default function TeacherLeasePanel({ questionId }: { questionId: string }
         <>
           <div className="prd-toolbar">
             <span className="prd-badge">
-              {expired ? '已到期' : (labels[lease?.state ?? 'idle'] ?? lease?.state)}
+              {controls.label}
             </span>
-            {lease?.state === 'active' && !expired && (
+            {currentLease?.state === 'active' && !expired && (
               <strong>
                 {Math.floor(remaining / 3600)}:{String(Math.floor(remaining / 60) % 60).padStart(2, '0')}:
                 {String(remaining % 60).padStart(2, '0')}
               </strong>
             )}
-            {canStart && (
+            {controls.canStart && (
               <button className="prd-button primary" disabled={busy} onClick={() => perform(false)}>
                 {busy ? '正在开启…' : '开启临时 API'}
               </button>
             )}
-            {expired && (
+            {controls.canRenew && (
               <button className="prd-button primary" disabled={busy} onClick={() => perform(true)}>
                 {busy ? '正在续期…' : '手动续期两小时'}
               </button>
             )}
           </div>
-          {lease?.expiresAt && (
-            <p className="prd-muted">到期时间：{new Date(lease.expiresAt).toLocaleString('zh-CN')}</p>
+          {currentLease?.expiresAt && (
+            <p className="prd-muted">到期时间：{new Date(currentLease.expiresAt).toLocaleString('zh-CN')}</p>
           )}
-          {lease && (
+          {currentLease && (
             <p className="prd-muted">
-              已调用 {lease.calls ?? 0} 次{lease.maxCalls != null ? ` / ${lease.maxCalls} 次` : ''}
+              已调用 {currentLease.calls ?? 0} 次
+              {currentLease.maxCalls != null ? ` / ${currentLease.maxCalls} 次` : ''}
             </p>
           )}
-          {lease?.reason && <p className="prd-muted">{lease.reason}</p>}
-          {lease?.state === 'active' && !expired && lease.endpoint && (
+          {currentLease?.reason && <p className="prd-muted">{currentLease.reason}</p>}
+          {currentLease?.state === 'active' && !expired && currentLease.endpoint && (
             <>
               <label className="prd-label">
                 本人的临时调用地址
-                <input readOnly className="prd-input" value={lease.endpoint} />
+                <input readOnly className="prd-input" value={currentLease.endpoint} />
               </label>
               <div className="prd-toolbar">
-                <button className="prd-button" onClick={() => copy(lease.endpoint!)}>
+                <button className="prd-button" onClick={() => copy(currentLease.endpoint!)}>
                   复制地址
                 </button>
-                {lease.token && (
-                  <button className="prd-button" onClick={() => copy(lease.token!)}>
+                {currentLease.token && (
+                  <button className="prd-button" onClick={() => copy(currentLease.token!)}>
                     复制访问凭证
                   </button>
                 )}

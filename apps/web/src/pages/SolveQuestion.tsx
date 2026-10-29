@@ -26,6 +26,7 @@ import {
   submissionPhaseLabel,
   hallReturnLocation,
   createLatestRequest,
+  submissionPollingFailure,
 } from './solveWorkbench'
 import {
   dynamicSummary,
@@ -161,6 +162,7 @@ export default function SolveQuestion() {
   const [historyError, setHistoryError] = useState('')
   const [submission, setSubmission] = useState<SubmissionRecord | null>(null)
   const [activeId, setActiveId] = useState<string | null>(null)
+  const [pollingSignInRequired, setPollingSignInRequired] = useState(false)
   const [currentScore, setCurrentScore] = useState<CurrentDynamicScore | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
@@ -198,6 +200,7 @@ export default function SolveQuestion() {
     setHistory([])
     setSubmission(null)
     setActiveId(null)
+    setPollingSignInRequired(false)
     setCurrentScore(null)
     setFile(null)
     setLeftTab('description')
@@ -277,6 +280,7 @@ export default function SolveQuestion() {
         if (stopped) return
         setSubmission(item)
         setError('')
+        setPollingSignInRequired(false)
         if (isTerminal(item.status)) {
           setResultOpen(true)
           safeWrite(taskKey, null)
@@ -302,6 +306,21 @@ export default function SolveQuestion() {
         timer = setTimeout(poll, 2000)
       } catch (err) {
         if (!stopped) {
+          const action = submissionPollingFailure(err)
+          if (action === 'missing') {
+            safeWrite(taskKey, null)
+            setActiveId(null)
+            setSubmission(null)
+            setError('该提交记录不存在或已移除，已解除本地等待状态；代码草稿保留，可以重新提交。')
+            return
+          }
+          if (action === 'sign_in') {
+            setPollingSignInRequired(true)
+            setError(
+              '登录已失效或当前账号无权查询，已暂停进度查询。请重新登录后返回本题，系统会恢复原任务，避免重复提交。',
+            )
+            return
+          }
           setError(`进度查询暂不可用：${err instanceof Error ? err.message : '连接中断'}。系统将继续重试。`)
           timer = setTimeout(poll, 5000)
         }
@@ -558,6 +577,9 @@ export default function SolveQuestion() {
       {error && (
         <div className="solve-alert prd-error" role="alert">
           {error}
+          {pollingSignInRequired && (
+            <Link className="prd-button" to="/login">重新登录</Link>
+          )}
         </div>
       )}
       {draftError && (
@@ -640,7 +662,11 @@ export default function SolveQuestion() {
             </div>
           )}
           {toolPanel === 'teacher' && definition.teacherApi.enabled && (
-            <TeacherLeasePanel key={question.id} questionId={question.id} />
+            <TeacherLeasePanel
+              key={question.id}
+              questionId={question.id}
+              questionVersion={question.revision}
+            />
           )}
         </section>
       )}

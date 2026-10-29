@@ -9,6 +9,8 @@ import {
   createLatestRequest,
 } from './solveWorkbench'
 import type { QuestionRecord, SubmissionRecord } from '../lib/prdApi'
+import * as workbench from './solveWorkbench'
+import { apiGet } from '../lib/api'
 
 test('draft identities preserve the existing key and isolate accounts, questions and revisions', () => {
   const keys = [
@@ -65,6 +67,23 @@ test('unqualified and obsolete outcomes take precedence over their last active p
     submissionPhaseLabel({ status: 'stale', phase: 'opponents' } as SubmissionRecord),
     '旧版本已失效',
   )
+})
+
+test('missing submissions unlock, expired sessions pause, and transient failures keep their active task', async (t) => {
+  assert.equal(typeof workbench.submissionPollingFailure, 'function')
+  for (const [status, action] of [[404, 'missing'], [401, 'sign_in'], [403, 'sign_in'], [500, 'retry'], [502, 'retry'], [503, 'retry']] as const) {
+    const mocked = t.mock.method(globalThis, 'fetch', async () =>
+      Response.json({ code: 40001, message: '查询失败', data: null }, { status }),
+    )
+    const error = await apiGet('/submissions/task').catch((reason: unknown) => reason)
+    assert.equal(workbench.submissionPollingFailure(error), action)
+    mocked.mock.restore()
+  }
+  assert.equal(workbench.submissionPollingFailure(new TypeError('Network unavailable')), 'retry')
+  assert.equal(workbench.submissionPollingFailure(new Error('404 proxy text')), 'retry')
+  t.mock.method(globalThis, 'fetch', async () => new Response('<html>Proxy route unavailable</html>', { status: 404 }))
+  const proxyError = await apiGet('/submissions/task').catch((reason: unknown) => reason)
+  assert.equal(workbench.submissionPollingFailure(proxyError), 'retry')
 })
 
 test('return navigation preserves filters only within the same local hall', () => {
