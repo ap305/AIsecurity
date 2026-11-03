@@ -7,6 +7,9 @@ import { prisma } from './db.js'
 import { transaction } from './transaction.js'
 import { invalidateArenaUserTx, drainArenaRecomputations } from '../services/arenaScoring.js'
 import { RequestError, validateOptionalProfile } from './prdContract.js'
+import type { Prisma } from '@prisma/client'
+import { AuthError, hashPasswordAsync, verifyPasswordAsync, validateNewPassword } from './authPassword.js'
+import { authEvent, digest, assertLoginAvailable, loginFailure, INITIAL_PASSWORD } from './authSecurity.js'
 
 /**
  * 集中式账号认证
@@ -56,6 +59,8 @@ export interface PublicUser {
   isTestAccount: boolean
   accountStatus: string
   createdAt: string
+  lastLoginAt?: string | null
+  mustChangePassword?: boolean
 }
 
 type UserRow = {
@@ -76,7 +81,7 @@ type UserRow = {
   updatedAt: Date
 }
 
-function toPublicUser(row: UserRow): PublicUser {
+function toPublicUser(row: UserRow, security?: { lastLoginAt: Date | null; mustChangePassword: boolean } | null): PublicUser {
   return {
     id: row.id,
     username: row.username,
@@ -90,6 +95,8 @@ function toPublicUser(row: UserRow): PublicUser {
     isTestAccount: row.isTestAccount ?? false,
     accountStatus: row.accountStatus ?? 'active',
     createdAt: row.createdAt.toISOString(),
+    lastLoginAt: security?.lastLoginAt?.toISOString() ?? null,
+    mustChangePassword: security?.mustChangePassword ?? false,
   }
 }
 
@@ -111,20 +118,25 @@ export function verifyPassword(password: string, stored: string): boolean {
   }
 }
 
-interface TokenPayload {
+export interface TokenPayload {
   uid: string
   u: string
   r: string
   exp: number
   sv?: number
+  jti?: string
+  tokenHash?: string
+  limited?: boolean
 }
 
-function signToken(user: { id: string; username: string; role: string; sessionVersion?: number }): string {
+function signToken(user: { id: string; username: string; role: string; sessionVersion?: number }, limited = false): string {
   const payload: TokenPayload = {
     uid: user.id,
     u: user.username,
     r: user.role,
     exp: Date.now() + TOKEN_TTL_MS,
+    jti: crypto.randomBytes(16).toString('hex'),
+    limited,
     // Version zero also accepts pre-migration tokens, which have no sv field.
     ...(user.sessionVersion ? { sv: user.sessionVersion } : {}),
   }
@@ -161,7 +173,7 @@ export function verifyToken(token: string | undefined | null): TokenPayload | nu
       p.exp < Date.now()
     )
       return null
-    return p
+    return { ...p, tokenHash: digest(token) }
   } catch {
     return null
   }
@@ -197,15 +209,62 @@ export function hasCurrentSession(
   )
 }
 
+type AuthClient = Pick<Prisma.TransactionClient, 'authRevocation' | 'userSecurity'>
+/** Check persisted revocation as well as version; scoped capabilities never call this. */
+export async function hasValidSession(
+  payload: TokenPayload | null,
+  user: Parameters<typeof hasCurrentSession>[1],
+  client: AuthClient = prisma,
+  allowPasswordChange = false,
+): Promise<boolean> {
+  if (!hasCurrentSession(payload, user) || !payload?.tokenHash || payload.exp <= Date.now()) return false
+  let security
+  try {
+    if (await client.authRevocation.findUnique({ where: { tokenHash: payload.tokenHash } })) return false
+    security = await client.userSecurity.findUnique({ where: { userId: payload.uid } })
+  } catch { throw new AuthError('身份服务暂不可用，请稍后重试', 503, 50300) }
+  if (security?.mustChangePassword) {
+    if (security.temporaryPasswordExpiresAt && security.temporaryPasswordExpiresAt.getTime() <= Date.now()) return false
+    if (!allowPasswordChange) throw new AuthError('请刷新页面并修改临时密码后继续', 428, 42801)
+  }
+  return true
+}
+
+export function authErrorResponse(res: Response, error: unknown): void {
+  const failure = error instanceof AuthError ? error : new AuthError('身份服务暂不可用，请稍后重试', 503, 50300)
+  res.status(failure.status).json({ code: failure.code, message: failure.message, data: null })
+}
+
+/** Limited web sessions may only recover/change their password or log out, including on public routes. */
+export function passwordChangeOnlyMw(req: Request, res: Response, next: NextFunction): void {
+  const route = req.path.replace(/\/+$/, '').toLowerCase()
+  if ((req.method === 'GET' && ['/auth/me', '/auth/config'].includes(route)) ||
+      (req.method === 'POST' && ['/auth/change-password', '/auth/logout'].includes(route))) {
+    next()
+    return
+  }
+  const payload = authPayload(req)
+  // Only verified web tokens may take this fast path; old tokens have no marker and still consult persisted state.
+  if (!payload || payload.limited === false) {
+    next()
+    return
+  }
+  void (async () => {
+    const security = await prisma.userSecurity.findUnique({ where: { userId: payload.uid } })
+    if (security?.mustChangePassword || payload.limited === true) {
+      const row = await prisma.user.findUnique({ where: { id: payload.uid } })
+      if (!(await hasValidSession(payload, row, prisma, true))) throw invalidSession()
+      if (security?.mustChangePassword) throw new AuthError('请刷新页面并修改临时密码后继续', 428, 42801)
+    }
+    next()
+  })().catch((error) => authErrorResponse(res, error))
+}
+
 /** 校验并返回 admin 用户行；非 admin 返回 null（同时向 res 写 403） */
 export async function requireAdminUser(req: Request, res: Response): Promise<UserRow | null> {
-  const payload = authPayload(req)
-  if (!payload || payload.r !== 'admin') {
-    res.status(403).json({ code: 40300, message: '需要管理员登录', data: null })
-    return null
-  }
-  const row = await prisma.user.findUnique({ where: { id: payload.uid } })
-  if (!hasCurrentSession(payload, row) || row?.role !== 'admin') {
+  const row = await requireUser(req, res)
+  if (!row) return null
+  if (row.role !== 'admin' || authPayload(req)?.r !== 'admin') {
     res.status(403).json({ code: 40300, message: '需要管理员登录', data: null })
     return null
   }
@@ -213,24 +272,7 @@ export async function requireAdminUser(req: Request, res: Response): Promise<Use
 }
 
 export function requireAdminMw(req: Request, res: Response, next: NextFunction): void {
-  const payload = authPayload(req)
-  if (!payload || payload.r !== 'admin') {
-    res.status(403).json({ code: 40300, message: '需要管理员登录', data: null })
-    return
-  }
-  prisma.user
-    .findUnique({ where: { id: payload.uid } })
-    .then((row) => {
-      if (!hasCurrentSession(payload, row) || row?.role !== 'admin') {
-        res.status(403).json({ code: 40300, message: '需要管理员登录', data: null })
-        return
-      }
-      next()
-    })
-    .catch((e) => {
-      console.error('[auth] admin check failed:', e)
-      res.status(500).json({ code: 50000, message: 'Internal server error', data: null })
-    })
+  void requireAdminUser(req, res).then((row) => { if (row) next() }).catch((error) => authErrorResponse(res, error))
 }
 
 /** 启动引导：确保存在管理员账号 */
@@ -244,7 +286,7 @@ export async function ensureAdminUser(): Promise<void> {
   await prisma.user.create({
     data: {
       username,
-      password: hashPassword(password),
+      password: await hashPasswordAsync(password),
       displayName: '管理员',
       role: 'admin',
       school: '',
@@ -267,15 +309,13 @@ export async function registerStudent(input: {
     throw new Error('用户名仅限 3-32 位字母或数字')
   }
   if (!displayName) throw new Error('请填写姓名')
-  if (!input.password || input.password.length < 6) {
-    throw new Error('密码至少需要 6 位')
-  }
+  validateNewPassword(input.password)
   const exists = await prisma.user.findUnique({ where: { username } })
   if (exists) throw new Error('用户名已存在')
   const row = await prisma.user.create({
     data: {
       username,
-      password: hashPassword(input.password),
+      password: await hashPasswordAsync(input.password),
       displayName,
       school: (input.school || '').trim(),
       ...validateOptionalProfile(input),
@@ -290,14 +330,14 @@ export async function requireUser(req: Request, res: Response) {
   try {
     const payload = authPayload(req)
     const user = payload ? await prisma.user.findUnique({ where: { id: payload.uid } }) : null
-    if (!hasCurrentSession(payload, user)) {
+    if (!(await hasValidSession(payload, user))) {
       res.status(401).json({ code: 40100, message: '账号不可用或登录已过期，请重新登录', data: null })
       return null
     }
     return user
-  } catch {
+  } catch (error) {
     // Express 4 does not forward rejected async handlers automatically. Keep auth outages bounded for every route.
-    res.status(503).json({ code: 50300, message: '身份服务暂不可用，请稍后重试', data: null })
+    authErrorResponse(res, error)
     return null
   }
 }
@@ -328,38 +368,127 @@ export async function loginUser(
   username: string,
   password: string,
   role: string,
+  source?: string,
 ): Promise<{ token: string; user: PublicUser }> {
-  const row = await prisma.user.findUnique({ where: { username: (username || '').trim() } })
-  if (!row || !verifyPassword(password || '', row.password)) {
+  const exactUsername = (username || '').trim()
+  const accountKey = digest(exactUsername)
+  await assertLoginAvailable(accountKey)
+  const row = await prisma.user.findUnique({ where: { username: exactUsername } })
+  const validPassword = await verifyPasswordAsync(password || '', row?.password)
+  if (!row || !validPassword || (role && row.role !== role)) {
+    await loginFailure(accountKey, row?.id, source)
     throw new Error('用户名或密码错误')
   }
-  if (role && row.role !== role) {
-    throw new Error('请使用正确的登录入口')
-  }
   if (!isAccountActive(row)) throw new RequestError('账号已停用或删除，请联系管理员', 403)
-  return { token: signToken(row), user: toPublicUser(row as UserRow) }
+  return transaction(async (tx) => {
+    const fresh = await tx.user.findUnique({ where: { id: row.id } })
+    if (!fresh || !isAccountActive(fresh) || fresh.password !== row.password || fresh.sessionVersion !== row.sessionVersion)
+      throw new AuthError('账号或密码已更新，请重新登录', 401, 40100)
+    const oldSecurity = await tx.userSecurity.findUnique({ where: { userId: row.id } })
+    if (oldSecurity?.mustChangePassword && oldSecurity.temporaryPasswordExpiresAt && oldSecurity.temporaryPasswordExpiresAt.getTime() <= Date.now())
+      throw new AuthError('临时密码已过期，请联系管理员', 401, 40100)
+    const security = await tx.userSecurity.upsert({ where: { userId: row.id }, create: { userId: row.id, lastLoginAt: new Date() }, update: { lastLoginAt: new Date() } })
+    await tx.authLoginThrottle.deleteMany({ where: { accountKey } })
+    await tx.authRevocation.deleteMany({ where: { expiresAt: { lt: new Date() } } })
+    await authEvent(tx, 'auth.login.success', row.id)
+    return { token: signToken(fresh, security.mustChangePassword), user: toPublicUser(fresh, security) }
+  })
 }
 
-export async function userByPayload(payload: TokenPayload | null): Promise<PublicUser | null> {
+export async function userByPayload(payload: TokenPayload | null, allowPasswordChange = false): Promise<PublicUser | null> {
   if (!payload) return null
   const row = await prisma.user.findUnique({ where: { id: payload.uid } })
-  return hasCurrentSession(payload, row) ? toPublicUser(row as UserRow) : null
+  if (!(await hasValidSession(payload, row, prisma, allowPasswordChange))) return null
+  const security = await prisma.userSecurity.findUnique({ where: { userId: payload.uid } })
+  return toPublicUser(row as UserRow, security)
 }
 
 export async function listPublicUsers(): Promise<PublicUser[]> {
-  const rows = await prisma.user.findMany({
-    where: { accountStatus: { not: 'deleted' } },
-    orderBy: { createdAt: 'asc' },
-  })
-  return (rows as UserRow[]).map(toPublicUser)
+  const rows = await prisma.user.findMany({ where: { accountStatus: { not: 'deleted' } }, orderBy: { createdAt: 'asc' } })
+  const security = new Map((await prisma.userSecurity.findMany({ where: { userId: { in: rows.map((row) => row.id) } } })).map((row) => [row.userId, row]))
+  return rows.map((row) => toPublicUser(row, security.get(row.id)))
 }
 
-export async function adminResetPassword(userId: string, newPassword: string): Promise<void> {
-  if (!newPassword || newPassword.length < 6) throw new Error('密码至少需要 6 位')
-  const target = await prisma.user.findUnique({ where: { id: userId } })
-  if (!target) throw new Error('用户不存在')
-  if (target.role === 'admin') throw new Error('不能重置管理员密码')
-  await prisma.user.update({ where: { id: userId }, data: { password: hashPassword(newPassword) } })
+function invalidSession(): AuthError {
+  return new AuthError('账号不可用或登录已过期，请重新登录', 401, 40100)
+}
+
+export async function logoutSession(payload: TokenPayload | null): Promise<void> {
+  if (!payload?.tokenHash) throw invalidSession()
+  await transaction(async (tx) => {
+    // Repeated logout is safe even when the account version has since advanced.
+    await tx.authRevocation.upsert({ where: { tokenHash: payload.tokenHash! }, create: { tokenHash: payload.tokenHash!, userId: payload.uid, expiresAt: new Date(payload.exp) }, update: {} })
+    await authEvent(tx, 'auth.logout', payload.uid)
+  })
+}
+
+async function revokeTeacherLeases(tx: Prisma.TransactionClient, userId: string) {
+  await tx.teacherLease.updateMany({ where: { userId, state: { in: ['creating', 'active'] } }, data: { state: 'revoked', reason: '账号安全凭据已更新', nonce: crypto.randomBytes(24).toString('hex') } })
+}
+
+export async function logoutOtherSessions(payload: TokenPayload | null): Promise<{ token: string; user: PublicUser }> {
+  if (!payload) throw invalidSession()
+  return transaction(async (tx) => {
+    const row = await tx.user.findUnique({ where: { id: payload.uid } })
+    if (!(await hasValidSession(payload, row, tx))) throw invalidSession()
+    const changed = await tx.user.updateMany({ where: { id: row!.id, sessionVersion: payload.sv ?? 0, accountStatus: 'active' }, data: { sessionVersion: { increment: 1 } } })
+    if (changed.count !== 1) throw invalidSession()
+    const fresh = await tx.user.findUniqueOrThrow({ where: { id: row!.id } })
+    await authEvent(tx, 'auth.logout-others', fresh.id)
+    return { token: signToken(fresh), user: toPublicUser(fresh, await tx.userSecurity.findUnique({ where: { userId: fresh.id } })) }
+  })
+}
+
+export async function changeOwnPassword(payload: TokenPayload | null, currentPassword: string, newPassword: string): Promise<{ token: string; user: PublicUser }> {
+  if (!payload) throw invalidSession()
+  validateNewPassword(newPassword)
+  if (newPassword === currentPassword) throw new RequestError('新密码不能与当前密码相同')
+  const row = await prisma.user.findUnique({ where: { id: payload.uid } })
+  if (!(await hasValidSession(payload, row, prisma, true))) throw invalidSession()
+  if (!(await verifyPasswordAsync(currentPassword, row!.password))) throw new RequestError('当前密码错误')
+  const password = await hashPasswordAsync(newPassword)
+  return transaction(async (tx) => {
+    const fresh = await tx.user.findUnique({ where: { id: row!.id } })
+    if (!(await hasValidSession(payload, fresh, tx, true))) throw invalidSession()
+    const changed = await tx.user.updateMany({ where: { id: row!.id, password: row!.password, sessionVersion: payload.sv ?? 0, accountStatus: 'active' }, data: { password, sessionVersion: { increment: 1 } } })
+    if (changed.count !== 1) throw new AuthError('密码或登录状态已更新，请重新登录', 409, 40100)
+    const security = await tx.userSecurity.upsert({ where: { userId: row!.id }, create: { userId: row!.id }, update: { mustChangePassword: false, temporaryPasswordExpiresAt: null } })
+    await revokeTeacherLeases(tx, row!.id)
+    await authEvent(tx, 'auth.password.change', row!.id)
+    const updated = await tx.user.findUniqueOrThrow({ where: { id: row!.id } })
+    return { token: signToken(updated), user: toPublicUser(updated, security) }
+  })
+}
+
+async function resetPassword(userId: string, newPassword: string, actorId: string, initial = false): Promise<Date> {
+  if (!initial) validateNewPassword(newPassword)
+  const password = await hashPasswordAsync(newPassword)
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000)
+  await transaction(async (tx) => {
+    const target = await tx.user.findUnique({ where: { id: userId } })
+    if (!target) throw new RequestError('用户不存在', 404)
+    if (target.role === 'admin') throw new RequestError('不能重置管理员密码', 403)
+    await tx.user.update({ where: { id: userId }, data: { password, sessionVersion: { increment: 1 } } })
+    await tx.userSecurity.upsert({ where: { userId }, create: { userId, mustChangePassword: true, temporaryPasswordExpiresAt: expiresAt }, update: { mustChangePassword: true, temporaryPasswordExpiresAt: expiresAt } })
+    await revokeTeacherLeases(tx, userId)
+    await authEvent(tx, 'auth.password.reset', userId, actorId, { initialPassword: initial, requiresChange: true })
+  })
+  return expiresAt
+}
+
+export async function adminResetPassword(userId: string, newPassword: string, actorId = 'system'): Promise<void> {
+  await resetPassword(userId, newPassword, actorId)
+}
+
+export async function adminResetInitialPassword(userId: string, identityVerified: unknown, actorId: string) {
+  if (identityVerified !== true) throw new RequestError('请先确认已线下核验账号本人身份')
+  const expiresAt = await resetPassword(userId, INITIAL_PASSWORD, actorId, true)
+  return { ok: true, temporaryPassword: INITIAL_PASSWORD, expiresAt: expiresAt.toISOString() }
+}
+
+export async function listAuthEvents(userId: string | undefined, limit: number) {
+  const rows = await prisma.auditEvent.findMany({ where: { action: { startsWith: 'auth.' }, ...(userId ? { targetId: userId } : {}) }, orderBy: { createdAt: 'desc' }, take: Math.min(100, Math.max(1, Number.isFinite(limit) ? Math.floor(limit) : 50)) })
+  return rows.map((event) => ({ id: event.id, type: event.action, action: event.action, createdAt: event.createdAt, userId: event.targetId, actorId: event.actorId, success: event.action !== 'auth.login.failure' }))
 }
 
 const TEST_ACCOUNT_DISABLED_REASON = '测试账号已停用'
@@ -386,7 +515,7 @@ export async function adminCreateTestAccount(input: unknown, actorId: string): P
     throw new RequestError('学校名称不能超过 200 个字符')
   const data = {
     username: form.username.trim(),
-    password: hashPassword(form.password),
+    password: await hashPasswordAsync(form.password),
     displayName: form.displayName.trim(),
     school: typeof form.school === 'string' ? form.school.trim() : '',
     role: 'student',

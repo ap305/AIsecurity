@@ -1,4 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useState } from 'react'
 import { TIER_MAP } from '@ai-security/shared'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -13,10 +14,25 @@ export default function Topbar() {
   const navigate = useNavigate()
   const { user, isAuthenticated, isAdmin, logout } = useAuth()
   const navItems = NAV_ITEMS
+  const [loggingOut, setLoggingOut] = useState(false)
 
-  const handleLogout = () => {
-    logout()
-    navigate('/login', { replace: true })
+  const handleLogout = async () => {
+    if (loggingOut) return
+    setLoggingOut(true)
+    try {
+      const result = await logout()
+      if (result.sessionChanged) return
+      navigate('/login', {
+        replace: true,
+        state: {
+          logoutNotice: result.revoked
+            ? '已安全退出。'
+            : '已在本机退出；网络异常，服务端撤销尚未确认。请恢复连接后由管理员协助处理。',
+        },
+      })
+    } finally {
+      setLoggingOut(false)
+    }
   }
 
   const avatarColor = isAdmin ? 'var(--tier-gold)' : 'var(--brand-cyan)'
@@ -129,6 +145,7 @@ export default function Topbar() {
           {/* Logout */}
           <button
             onClick={handleLogout}
+            disabled={loggingOut}
             style={{
               marginLeft: 4,
               padding: '4px 10px',
@@ -149,7 +166,7 @@ export default function Topbar() {
               e.currentTarget.style.color = 'var(--text-secondary)'
             }}
           >
-            退出
+            {loggingOut ? '退出中…' : '退出'}
           </button>
         </div>
       ) : (

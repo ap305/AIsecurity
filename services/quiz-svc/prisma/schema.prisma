@@ -113,6 +113,33 @@ model User {
   updatedAt   DateTime @updatedAt
 }
 
+// Scalar references keep existing users and legacy sessions unchanged.
+model UserSecurity {
+  userId String @id
+  lastLoginAt DateTime?
+  mustChangePassword Boolean @default(false)
+  temporaryPasswordExpiresAt DateTime?
+  updatedAt DateTime @updatedAt
+}
+
+model AuthRevocation {
+  tokenHash String @id
+  userId String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([expiresAt])
+  @@index([userId])
+}
+
+model AuthLoginThrottle {
+  accountKey String @id
+  failures Int @default(0)
+  windowStartedAt DateTime @default(now())
+  blockedUntil DateTime?
+  updatedAt DateTime @updatedAt
+  @@index([updatedAt])
+}
+
 model QuestionRevision {
   id String @id @default(uuid())
   questionId String

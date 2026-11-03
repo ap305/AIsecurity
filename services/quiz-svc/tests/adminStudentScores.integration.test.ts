@@ -229,7 +229,7 @@ after(async () => {
 
 test('administrator-only list/detail reject anonymous and student callers; non-students return 404', async () => {
   for (const route of ['/admin/student-scores', '/admin/student-scores/alice']) {
-    assert.equal((await request(route, '')).status, 403)
+    assert.equal((await request(route, '')).status, 401)
     assert.equal((await request(route, studentToken)).status, 403)
   }
   assert.equal((await request('/admin/student-scores/admin')).status, 404)

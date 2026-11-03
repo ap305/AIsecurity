@@ -1,9 +1,14 @@
 import { isTerminal, type QuestionRecord, type SubmissionRecord } from '../lib/prdApi'
 import { ApiError } from '../lib/api'
+import { isSessionInvalid } from '../lib/authSession'
 
-export function submissionPollingFailure(error: unknown): 'missing' | 'sign_in' | 'retry' {
+export function submissionPollingFailure(
+  error: unknown,
+): 'missing' | 'sign_in' | 'forbidden' | 'change_password' | 'retry' {
   if (error instanceof ApiError && error.status === 404 && error.code === 40001) return 'missing'
-  if (error instanceof ApiError && [401, 403].includes(error.status)) return 'sign_in'
+  if (isSessionInvalid(error)) return 'sign_in'
+  if (error instanceof ApiError && error.status === 403) return 'forbidden'
+  if (error instanceof ApiError && error.status === 428 && error.code === 42801) return 'change_password'
   return 'retry'
 }
 

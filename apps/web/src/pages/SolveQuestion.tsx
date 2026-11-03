@@ -9,6 +9,7 @@ import 'katex/dist/katex.min.css'
 import './SolveQuestion.css'
 import { useAuth } from '../contexts/AuthContext'
 import { apiGet } from '../lib/api'
+import { loginHref } from '../lib/authSession'
 import {
   groupResources,
   isPublicResource,
@@ -317,8 +318,14 @@ export default function SolveQuestion() {
           if (action === 'sign_in') {
             setPollingSignInRequired(true)
             setError(
-              '登录已失效或当前账号无权查询，已暂停进度查询。请重新登录后返回本题，系统会恢复原任务，避免重复提交。',
+              '登录已失效，已暂停进度查询。请重新登录后返回本题，系统会恢复原任务，避免重复提交。',
             )
+            return
+          }
+          if (action === 'forbidden' || action === 'change_password') {
+            setError(action === 'change_password'
+              ? '当前登录须先修改密码。请刷新页面后完成改密，再返回本题；原任务和草稿已保留。'
+              : '当前账号无权查询该任务，已暂停查询。请联系授课老师或管理员；原任务和草稿已保留。')
             return
           }
           setError(`进度查询暂不可用：${err instanceof Error ? err.message : '连接中断'}。系统将继续重试。`)
@@ -578,7 +585,7 @@ export default function SolveQuestion() {
         <div className="solve-alert prd-error" role="alert">
           {error}
           {pollingSignInRequired && (
-            <Link className="prd-button" to="/login">重新登录</Link>
+            <Link className="prd-button" to={loginHref(`${location.pathname}${location.search}${location.hash}`)}>重新登录</Link>
           )}
         </div>
       )}

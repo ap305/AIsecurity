@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import {upgradeContractsDigest} from '/app/services/quiz-svc/scripts/upgradeSnapshotQuestions.ts'
 import {buildPaced08Plan,checkPaced08Proof} from '/app/services/quiz-svc/scripts/finalizePaced08Questions.ts'
 import {questionUpdateDigest} from '/app/services/quiz-svc/src/lib/questionUpdatePrecondition.ts'
-const B='/opt/example-platform',T='/home/zl/ai-security-v3-prd-rehearsal-20261018',api='http://127.0.0.1:14006/api'
+const B='/home/zl/ai-security-v3-20261016',T='/home/zl/ai-security-v3-prd-rehearsal-20261018',api='http://127.0.0.1:14006/api'
 const ids=['V3-261012-A08','V3-261012-D08']
 const read=(p:string)=>JSON.parse(fs.readFileSync(p,'utf8'))
 const hash=(b:any)=>crypto.createHash('sha256').update(b).digest('hex')

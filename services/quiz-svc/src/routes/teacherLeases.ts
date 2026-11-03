@@ -4,12 +4,13 @@ import { prisma } from '../lib/db.js'
 import { RequestError } from '../lib/prdContract.js'
 import { callPool } from '../services/apiPool.js'
 import { consumeTeacherCall, leaseState, leaseView, startTeacherLease } from '../services/teacherLeases.js'
+import { AuthError } from '../lib/authPassword.js'
 
 const router = Router()
 const fail = (res: any, e: any) =>
   res
     .status(e instanceof RequestError ? e.status : 500)
-    .json({ code: 40001, message: e instanceof RequestError ? e.message : '租约操作失败', data: null })
+    .json({ code: e instanceof AuthError ? e.code : e instanceof RequestError && e.status === 401 ? 40100 : 40001, message: e instanceof RequestError ? e.message : '租约操作失败', data: null })
 router.get('/questions/:id/teacher-lease', async (req, res) => {
   try {
     const user = await requireUser(req, res)

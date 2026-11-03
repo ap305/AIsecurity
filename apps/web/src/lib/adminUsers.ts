@@ -9,6 +9,8 @@ export interface AdminUser {
   school: string
   studentId?: string | null
   createdAt: string
+  lastLoginAt?: string | null
+  mustChangePassword?: boolean
   isTestAccount: boolean
   accountStatus: 'active' | 'disabled' | 'deleted'
 }

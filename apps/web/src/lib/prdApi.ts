@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut, apiPostMultipart, getAuthToken } from './api'
+import { apiGet, apiPost, apiPut, apiPostMultipart, getAuthToken, ApiError, assertCurrentToken, reportAuthFailure } from './api'
 
 export type HallCategory = 'basic' | 'adversarial'
 export type ProblemRole = 'attack' | 'defense'
@@ -440,7 +440,7 @@ export function submitMaterials(
     const token = getAuthToken()
     if (token) request.setRequestHeader('Authorization', `Bearer ${token}`)
     request.upload.onprogress = (event) => {
-      if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100))
+      if (token === getAuthToken() && event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100))
     }
     request.onerror = () => reject(new Error('提交连接中断，可重新点击提交重试；系统会避免重复受理。'))
     request.onabort = () => reject(new Error('上传已中断，可使用同一份材料重试；系统会避免重复受理。'))
@@ -448,13 +448,15 @@ export function submitMaterials(
       reject(new Error('上传或受理等待超时，请先检查提交记录，再使用同一份材料重试。'))
     request.onload = () => {
       try {
+        assertCurrentToken(token)
         const response = JSON.parse(request.responseText)
         if (request.status < 200 || request.status >= 300 || response.code !== 0)
-          throw new Error(response.message || '提交失败')
+          throw new ApiError(request.status, response.message || '提交失败', typeof response.code === 'number' ? response.code : undefined)
         if (!response.data || typeof response.data.id !== 'string' || !response.data.id.trim())
           throw new Error('提交响应缺少受理编号，请检查提交记录后重试。')
         resolve(response.data as SubmissionRecord)
       } catch (error) {
+        reportAuthFailure(error, token)
         reject(error instanceof Error ? error : new Error('提交响应无法解析。'))
       }
     }

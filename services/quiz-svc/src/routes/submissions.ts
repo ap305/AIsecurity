@@ -5,13 +5,14 @@ import fs from 'node:fs'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { prisma } from '../lib/db.js'
-import { requireUser, requireAdminMw, authPayload, hasCurrentSession } from '../lib/auth.js'
+import { requireUser, requireAdminMw, authPayload, hasValidSession } from '../lib/auth.js'
 import { parseJson, RequestError, type SubmissionSnapshot } from '../lib/prdContract.js'
 import { transaction } from '../lib/transaction.js'
 import { wakeEvaluationWorker } from '../services/evaluationWorker.js'
 import { validateCodeBlanks } from '../lib/codeBlanks.js'
 import { submissionDiagnostics, type SubmissionDiagnostics } from '../services/submissionDiagnostics.js'
 import type { Submission } from '@prisma/client'
+import { AuthError } from '../lib/authPassword.js'
 
 const router = Router()
 const UPLOADS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../uploads/submissions')
@@ -28,7 +29,7 @@ const ok = (res: any, data: any) => res.json({ code: 0, message: 'ok', data })
 const fail = (res: any, e: any) =>
   res
     .status(e instanceof RequestError ? e.status : 500)
-    .json({ code: 40001, message: e instanceof RequestError ? e.message : '提交操作失败', data: null })
+    .json({ code: e instanceof AuthError ? e.code : e instanceof RequestError && e.status === 401 ? 40100 : 40001, message: e instanceof RequestError ? e.message : '提交操作失败', data: null })
 export function submissionView(row: any, diagnostics: SubmissionDiagnostics | null = null) {
   const result = parseJson<Record<string, unknown>>(row.result, {})
   return {
@@ -106,6 +107,8 @@ router.post(
       if (!Number.isSafeInteger(requestedVersion) || requestedVersion < 1)
         throw new RequestError('请提供有效的题目版本')
       const materialHash = await submissionMaterialHash(code, req.file?.path)
+      if (!(await hasValidSession(authPayload(req), await prisma.user.findUnique({ where: { id: user.id } }))))
+        throw new RequestError('账号不可用或登录已过期，请重新登录', 401)
       const prior = await prisma.submission.findUnique({
         where: { userId_idempotencyKey: { userId: user.id, idempotencyKey } },
       })
@@ -140,7 +143,7 @@ router.post(
       const submission = await transaction(async (tx) => {
         // Uploading/hash calculation may outlive a disable, deletion, or session revocation.
         const freshUser = await tx.user.findUnique({ where: { id: user.id } })
-        if (!hasCurrentSession(authPayload(req), freshUser))
+        if (!(await hasValidSession(authPayload(req), freshUser, tx)))
           throw new RequestError('账号不可用或登录已过期，请重新登录', 401)
         const fresh = await tx.question.findUniqueOrThrow({ where: { id: questionId } })
         if (fresh.revision !== question.revision || fresh.status !== 'published')

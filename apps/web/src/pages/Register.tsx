@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { validateNewPassword } from '../lib/authSession'
 
 export default function Register() {
   const { register } = useAuth()
@@ -20,18 +21,13 @@ export default function Register() {
     e.preventDefault()
     setError('')
 
-    if (
-      !displayName.trim() ||
-      !school.trim() ||
-      !username.trim() ||
-      !password.trim() ||
-      !confirmPassword.trim()
-    ) {
+    if (!displayName.trim() || !school.trim() || !username.trim() || !password || !confirmPassword) {
       setError('请填写所有字段')
       return
     }
-    if (password.length < 6) {
-      setError('密码至少需要6位')
+    const passwordError = validateNewPassword(password)
+    if (passwordError) {
+      setError(passwordError)
       return
     }
     if (password !== confirmPassword) {
@@ -161,7 +157,8 @@ export default function Register() {
             <input
               className="form-input"
               type="password"
-              placeholder="密码（至少6位）"
+              aria-label="新密码（15～128个字符）"
+              placeholder="密码（15～128个字符）"
               value={password}
               onChange={(e) => {
                 setPassword(e.target.value)
@@ -175,6 +172,7 @@ export default function Register() {
               className="form-input"
               type="password"
               placeholder="确认密码"
+              aria-label="确认密码"
               value={confirmPassword}
               onChange={(e) => {
                 setConfirmPassword(e.target.value)

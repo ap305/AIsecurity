@@ -244,7 +244,7 @@ test('migration defaults preserve normal students and version-zero sessions', as
 
 test('only administrators can create test students and privileged input cannot escalate roles', async () => {
   for (const token of ['', studentToken])
-    assert.equal((await request('/admin/users', 'POST', account('unauthorized'), token)).status, 403)
+    assert.equal((await request('/admin/users', 'POST', account('unauthorized'), token)).status, token ? 403 : 401)
   const initial = await prisma.user.count()
   for (const extra of [
     { role: 'admin' },
@@ -585,8 +585,9 @@ test('a delayed teacher request cannot use its stale session after disable and r
   assert.equal(await prisma.teacherLease.count({ where: { userId: user.id } }), 0)
 })
 
-test('a long upload cannot enqueue with its stale session after disable and reenable', async (t) => {
-  const user = await create('uploadrace')
+for (const revocation of ['disable', 'logout', 'reset'])
+test(`a long upload cannot enqueue after ${revocation} revokes its credential`, async (t) => {
+  const user = await create(`upload${revocation}race`)
   const token = (await login(user.username)).json.data.token
   const uploadRoot = path.resolve('uploads/submissions')
   const existing = new Set(await fs.readdir(uploadRoot))
@@ -622,14 +623,20 @@ test('a long upload cannot enqueue with its stale session after disable and reen
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
   assert.equal(newFiles.length, 1, 'Multer must have authenticated and begun receiving the upload')
-  assert.equal((await request(`/admin/users/${user.id}/status`, 'PUT', { status: 'disabled' })).status, 200)
+  if (revocation === 'disable') {
+    assert.equal((await request(`/admin/users/${user.id}/status`, 'PUT', { status: 'disabled' })).status, 200)
+    assert.equal((await request(`/admin/users/${user.id}/status`, 'PUT', { status: 'active' })).status, 200)
+  } else if (revocation === 'logout') {
+    assert.equal((await request('/auth/logout', 'POST', {}, token)).status, 200)
+  } else {
+    assert.equal((await request(`/admin/users/${user.id}/password-reset`, 'POST', { identityVerified: true })).status, 200)
+  }
   const fields = {
     questionId: 'lifecycle-question',
     questionVersion: '1',
     code: 'answer',
     idempotencyKey: 'long-upload-race',
   }
-  assert.equal((await request(`/admin/users/${user.id}/status`, 'PUT', { status: 'active' })).status, 200)
   upload.end(
     `1}\r\n${Object.entries(fields)
       .map(
@@ -640,12 +647,50 @@ test('a long upload cannot enqueue with its stale session after disable and reen
   )
   const result = await response
   assert.equal(result.status, 401)
+  assert.equal(result.json.code, 40100)
   assert.equal(await prisma.submission.count({ where: { userId: user.id } }), 0)
   assert.equal(await prisma.evaluationTask.count(), 0)
   assert.deepEqual(
     (await fs.readdir(uploadRoot)).filter((x) => !existing.has(x)),
     [],
   )
+})
+
+test('logout during teacher readiness cannot issue credentials or be revived by recovery; fresh login can retry', async () => {
+  const user = await create('logoutreadiness')
+  const token = (await login(user.username)).json.data.token
+  healthHook = async () => {
+    assert.equal((await request('/auth/logout', 'POST', {}, token)).status, 200)
+  }
+  const result = await request('/questions/lifecycle-question/teacher-lease/start', 'POST', {}, token)
+  assert.equal(result.status, 401)
+  assert.equal(result.json.code, 40100)
+  const lease = await prisma.teacherLease.findUniqueOrThrow({ where: { userId_questionId: { userId: user.id, questionId: 'lifecycle-question' } } })
+  assert.equal(lease.state, 'error')
+  await prisma.teacherLease.update({ where: { id: lease.id }, data: { updatedAt: new Date(Date.now() - 60000) } })
+  await (await import('../src/services/teacherLeases.js')).recoverTeacherLeases()
+  assert.notEqual((await prisma.teacherLease.findUniqueOrThrow({ where: { id: lease.id } })).state, 'active')
+  healthHook = undefined
+  const fresh = (await login(user.username)).json.data.token
+  assert.equal((await request('/questions/lifecycle-question/teacher-lease/start', 'POST', {}, fresh)).json.data.state, 'active')
+})
+
+test('a password reset invalidates teacher credentials and permits a new lease only after first password change', async () => {
+  const user = await create('resetlease')
+  const token = (await login(user.username)).json.data.token
+  const oldLease = (await request('/questions/lifecycle-question/teacher-lease/start', 'POST', {}, token)).json.data
+  const reset = await request(`/admin/users/${user.id}/password-reset`, 'POST', { identityVerified: true })
+  assert.equal(reset.status, 200)
+  const limited = await request('/auth/login', 'POST', { username: user.username, password: reset.json.data.temporaryPassword, role: 'student' }, '')
+  const limitedToken = limited.json.data.token
+  assert.equal((await request('/questions/lifecycle-question/teacher-lease/start', 'POST', {}, limitedToken)).json.code, 42801)
+  assert.equal((await request(`/teacher/${oldLease.id}/query`, 'POST', {}, oldLease.token)).status, 401)
+  const changed = await request('/auth/change-password', 'POST', { currentPassword: reset.json.data.temporaryPassword, newPassword: 'fresh teacher passphrase' }, limitedToken)
+  assert.equal(changed.status, 200)
+  const fresh = await request('/questions/lifecycle-question/teacher-lease/start', 'POST', {}, changed.json.data.token)
+  assert.equal(fresh.status, 200)
+  assert.equal(fresh.json.data.state, 'active')
+  assert.notEqual(fresh.json.data.token, oldLease.token)
 })
 
 test('bulk student clearing preserves test accounts deleted tombstones usernames and their arena slots', async () => {

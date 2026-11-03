@@ -71,9 +71,18 @@ test('unqualified and obsolete outcomes take precedence over their last active p
 
 test('missing submissions unlock, expired sessions pause, and transient failures keep their active task', async (t) => {
   assert.equal(typeof workbench.submissionPollingFailure, 'function')
-  for (const [status, action] of [[404, 'missing'], [401, 'sign_in'], [403, 'sign_in'], [500, 'retry'], [502, 'retry'], [503, 'retry']] as const) {
+  for (const [status, code, action] of [
+    [404, 40001, 'missing'],
+    [401, 40100, 'sign_in'],
+    [403, 40300, 'forbidden'],
+    [428, 42801, 'change_password'],
+    [401, 40001, 'retry'],
+    [500, 50300, 'retry'],
+    [502, 40100, 'retry'],
+    [503, 50300, 'retry'],
+  ] as const) {
     const mocked = t.mock.method(globalThis, 'fetch', async () =>
-      Response.json({ code: 40001, message: '查询失败', data: null }, { status }),
+      Response.json({ code, message: '查询失败', data: null }, { status }),
     )
     const error = await apiGet('/submissions/task').catch((reason: unknown) => reason)
     assert.equal(workbench.submissionPollingFailure(error), action)
@@ -81,7 +90,11 @@ test('missing submissions unlock, expired sessions pause, and transient failures
   }
   assert.equal(workbench.submissionPollingFailure(new TypeError('Network unavailable')), 'retry')
   assert.equal(workbench.submissionPollingFailure(new Error('404 proxy text')), 'retry')
-  t.mock.method(globalThis, 'fetch', async () => new Response('<html>Proxy route unavailable</html>', { status: 404 }))
+  t.mock.method(
+    globalThis,
+    'fetch',
+    async () => new Response('<html>Proxy route unavailable</html>', { status: 404 }),
+  )
   const proxyError = await apiGet('/submissions/task').catch((reason: unknown) => reason)
   assert.equal(workbench.submissionPollingFailure(proxyError), 'retry')
 })

@@ -5,6 +5,7 @@ import Sidebar from './components/Sidebar'
 import ProtectedRoute from './components/ProtectedRoute'
 import Login from './pages/Login'
 import Register from './pages/Register'
+import ChangePassword from './pages/ChangePassword'
 import QuestionHall from './pages/QuestionHall'
 import Profile from './pages/Profile'
 import Achievements from './pages/Achievements'
@@ -102,6 +103,7 @@ export default function App() {
 
         {/* All authenticated routes — with shell */}
         <Route element={<ProtectedRoute />}>
+          <Route path="/auth/change-password" element={<ChangePassword />} />
           <Route element={<AppLayout />}>
             <Route path="/" element={<QuestionHall category="basic" />} />
             <Route path="/module/:moduleCode" element={<Navigate to="/" replace />} />

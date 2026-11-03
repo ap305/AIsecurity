@@ -14,7 +14,13 @@ import {
   adminCreateTestAccount,
   adminSetTestAccountStatus,
   type PublicUser,
+  logoutSession,
+  logoutOtherSessions,
+  changeOwnPassword,
+  adminResetInitialPassword,
+  listAuthEvents,
 } from '../lib/auth.js'
+import { AuthError } from '../lib/authPassword.js'
 
 /**
  * 集中式账号接口
@@ -55,11 +61,35 @@ function authFailure(res: Response, error: unknown, fallback: string): void {
   const known =
     error instanceof RequestError ||
     (error instanceof Error && error.name === 'Error' && publicValidationMessages.has(error.message))
-  const status = error instanceof RequestError ? error.status : known ? 400 : 500
+  const status = error instanceof RequestError ? error.status : known ? 400 : 503
+  if (error instanceof AuthError && error.retryAfterSeconds) res.setHeader('Retry-After', String(error.retryAfterSeconds))
   res
     .status(status)
-    .json({ code: status === 500 ? 50000 : 40001, message: authPublicMessage(error, fallback), data: null })
+    .json({ code: error instanceof AuthError ? error.code : status === 503 ? 50300 : status === 403 ? 40300 : 40001, message: authPublicMessage(error, fallback), data: error instanceof AuthError && error.retryAfterSeconds ? { retryAfterSeconds: error.retryAfterSeconds } : null })
 }
+
+router.get('/auth/config', (_req, res) => res.json({ code: 0, message: 'ok', data: { manualResetEnabled: true } }))
+
+router.post('/auth/logout', async (req, res) => {
+  try {
+    await logoutSession(authPayload(req))
+    res.json({ code: 0, message: 'ok', data: { ok: true } })
+  } catch (error) { authFailure(res, error, '身份服务暂不可用，请稍后重试') }
+})
+
+router.post('/auth/logout-others', async (req, res) => {
+  try {
+    res.json({ code: 0, message: 'ok', data: await logoutOtherSessions(authPayload(req)) })
+  } catch (error) { authFailure(res, error, '身份服务暂不可用，请稍后重试') }
+})
+
+router.post('/auth/change-password', async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body ?? {}
+    if (typeof currentPassword !== 'string' || typeof newPassword !== 'string') throw new RequestError('请填写当前密码和新密码')
+    res.json({ code: 0, message: 'ok', data: await changeOwnPassword(authPayload(req), currentPassword, newPassword) })
+  } catch (error) { authFailure(res, error, '身份服务暂不可用，请稍后重试') }
+})
 
 router.put('/auth/me', async (req, res) => {
   try {
@@ -113,7 +143,8 @@ router.post('/auth/register', async (req: Request, res: Response) => {
 router.post('/auth/login', async (req: Request, res: Response) => {
   try {
     const { username, password, role } = (req.body ?? {}) as Record<string, unknown>
-    const result = await loginUser(String(username ?? ''), String(password ?? ''), String(role ?? 'student'))
+    // No trust-proxy chain is configured; forwarded headers are not a source identity.
+    const result = await loginUser(String(username ?? ''), String(password ?? ''), String(role ?? 'student'), req.socket.remoteAddress)
     res.json({ code: 0, message: 'ok', data: result })
   } catch (err) {
     authFailure(res, err, '登录服务暂不可用，请稍后重试')
@@ -123,15 +154,14 @@ router.post('/auth/login', async (req: Request, res: Response) => {
 // ── GET /api/auth/me ────────────────────────────────────────────────────
 router.get('/auth/me', async (req: Request, res: Response) => {
   try {
-    const user = await userByPayload(authPayload(req))
+    const user = await userByPayload(authPayload(req), true)
     if (!user) {
       res.status(401).json({ code: 40100, message: '登录已过期', data: null })
       return
     }
     res.json({ code: 0, message: 'ok', data: { user } })
   } catch (err) {
-    console.error('[auth] me failed:', err)
-    res.status(500).json({ code: 50000, message: 'Internal server error', data: null })
+    authFailure(res, err, '身份服务暂不可用，请稍后重试')
   }
 })
 
@@ -174,11 +204,29 @@ router.put('/admin/users/:id/password', async (req: Request, res: Response) => {
   try {
     const admin = await requireAdminUser(req, res)
     if (!admin) return
-    await adminResetPassword(req.params.id, String((req.body ?? {}).password ?? ''))
+    await adminResetPassword(req.params.id, String((req.body ?? {}).password ?? ''), admin.id)
     res.json({ code: 0, message: 'ok', data: { ok: true } })
   } catch (err) {
     authFailure(res, err, '密码重置暂不可用，请稍后重试')
   }
+})
+
+router.post('/admin/users/:id/password-reset', async (req, res) => {
+  try {
+    const admin = await requireAdminUser(req, res)
+    if (!admin) return
+    const result = await adminResetInitialPassword(req.params.id, req.body?.identityVerified, admin.id)
+    res.json({ code: 0, message: 'ok', data: result })
+  } catch (error) { authFailure(res, error, '密码重置暂不可用，请稍后重试') }
+})
+
+router.get('/admin/auth-events', async (req, res) => {
+  try {
+    const admin = await requireAdminUser(req, res)
+    if (!admin) return
+    const data = await listAuthEvents(typeof req.query.userId === 'string' ? req.query.userId : undefined, Number(req.query.limit ?? 50))
+    res.json({ code: 0, message: 'ok', data })
+  } catch (error) { authFailure(res, error, '安全事件查询暂不可用，请稍后重试') }
 })
 
 router.delete('/admin/users/:id', async (req: Request, res: Response) => {

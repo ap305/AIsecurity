@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import AccountSecurity from '../components/AccountSecurity'
 export default function Profile() {
   const { user, updateProfile } = useAuth()
   const [form, setForm] = useState({
@@ -81,6 +82,7 @@ export default function Profile() {
           {busy ? '保存中…' : '保存个人资料'}
         </button>
       </div>
+      <AccountSecurity />
     </div>
   )
 }

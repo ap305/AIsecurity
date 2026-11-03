@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import { prisma } from '../lib/db.js'
-import { signScopedToken, isAccountActive, hasCurrentSession } from '../lib/auth.js'
+import { signScopedToken, isAccountActive, hasValidSession, type TokenPayload } from '../lib/auth.js'
 import { parseJson, RequestError, type PoolBinding, type SubmissionSnapshot } from '../lib/prdContract.js'
 import { poolHealthy } from './apiPool.js'
 import { transaction } from '../lib/transaction.js'
@@ -44,7 +44,7 @@ export async function startTeacherLease(
   userId: string,
   questionId: string,
   renew: boolean,
-  sessionPayload?: Parameters<typeof hasCurrentSession>[0],
+  sessionPayload?: TokenPayload | null,
 ) {
   const question = await prisma.question.findUnique({ where: { id: questionId } })
   if (!question || question.status !== 'published') throw new RequestError('题目当前不可使用', 404)
@@ -56,7 +56,7 @@ export async function startTeacherLease(
     throw new RequestError('题目未启用教师 API')
   const prepared = await transaction(async (tx) => {
     const user = await tx.user.findUnique({ where: { id: userId } })
-    if (sessionPayload !== undefined && !hasCurrentSession(sessionPayload, user))
+    if (sessionPayload !== undefined && !(await hasValidSession(sessionPayload, user, tx)))
       throw new RequestError('账号不可用或登录已过期，请重新登录', 401)
     if (!isAccountActive(user)) throw new RequestError('账号已停用或删除，请联系管理员', 403)
     const freshQuestion = await tx.question.findUnique({ where: { id: questionId } })
@@ -69,7 +69,7 @@ export async function startTeacherLease(
     const current = await tx.teacherLease.findUnique({ where: { userId_questionId: { userId, questionId } } })
     if (current && current.questionVersion === question.revision) {
       const state = leaseState(current)
-      if (state === 'revoked') throw new RequestError('管理员已撤销访问资格', 403)
+      if (state === 'revoked' && current.reason !== '账号安全凭据已更新') throw new RequestError('管理员已撤销访问资格', 403)
       if (
         state === 'active' ||
         (state === 'creating' && current.updatedAt.getTime() > Date.now() - CREATION_RECOVERY_MS)
@@ -90,7 +90,7 @@ export async function startTeacherLease(
       nonce: crypto.randomBytes(24).toString('hex'),
       calls: 0,
       maxCalls: snapshot.definition.teacherApi.maxCalls ?? 1000,
-      reason: null,
+      reason: sessionPayload ? '等待登录凭据复核' : null,
     }
     const row = await tx.teacherLease.upsert({
       where: { userId_questionId: { userId, questionId } },
@@ -105,7 +105,7 @@ export async function startTeacherLease(
   const row = await transaction(async (tx) => {
     const freshQuestion = await tx.question.findUnique({ where: { id: questionId } })
     const user = await tx.user.findUnique({ where: { id: userId } })
-    if (sessionPayload !== undefined && !hasCurrentSession(sessionPayload, user))
+    if (sessionPayload !== undefined && !(await hasValidSession(sessionPayload, user, tx)))
       throw new RequestError('账号不可用或登录已过期，请重新登录', 401)
     const owned = await tx.teacherLease.findFirst({
       where: { id: prepared.row.id, nonce: prepared.row.nonce },
@@ -120,7 +120,7 @@ export async function startTeacherLease(
       data: !current
         ? { state: 'revoked', reason: '账号或题目版本已失效' }
         : ready
-          ? { state: 'active', startsAt: started, expiresAt: new Date(started.getTime() + LEASE_MS) }
+          ? { state: 'active', startsAt: started, expiresAt: new Date(started.getTime() + LEASE_MS), reason: null }
           : { state: 'error', reason: '教师服务暂不可用，可稍后重试' },
     })
     // Bind the returned credentials to this preparation in the same transaction.
@@ -130,6 +130,12 @@ export async function startTeacherLease(
     })
     if (!result) throw new RequestError('教师租约准备已被更新，请刷新后重试', 409)
     return result
+  }).catch(async (error) => {
+    if (sessionPayload !== undefined) {
+      // A rejected browser request must not leave a preparation recoverable without its session.
+      await prisma.teacherLease.updateMany({ where: { id: prepared.row.id, nonce: prepared.row.nonce, state: 'creating' }, data: { state: 'error', reason: '登录凭据复核未完成，请重新开启租约' } }).catch(() => {})
+    }
+    throw error
   })
   await prisma.auditEvent.create({
     data: {
@@ -145,7 +151,8 @@ export async function startTeacherLease(
 /** Recover only preparations whose ten-second health request owner has stopped. */
 export async function recoverTeacherLeases(): Promise<void> {
   const stale = await prisma.teacherLease.findMany({
-    where: { state: 'creating', updatedAt: { lte: new Date(Date.now() - CREATION_RECOVERY_MS) } },
+    // Browser-owned preparation must be rechecked by its credential, never revived anonymously.
+    where: { state: 'creating', OR: [{ reason: null }, { reason: { not: '等待登录凭据复核' } }], updatedAt: { lte: new Date(Date.now() - CREATION_RECOVERY_MS) } },
     select: { userId: true, questionId: true },
   })
   for (const lease of stale) {

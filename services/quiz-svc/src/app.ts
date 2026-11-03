@@ -13,10 +13,12 @@ import teacherLeasesRouter from './routes/teacherLeases.js'
 import arenaRouter from './routes/arena.js'
 import evaluationPackagesRouter from './routes/evaluationPackages.js'
 import adminStudentScoresRouter from './routes/adminStudentScores.js'
+import { passwordChangeOnlyMw } from './lib/auth.js'
 
 export const app = express()
 app.use(cors())
 app.use(express.json({ limit: '2mb' }))
+app.use('/api', passwordChangeOnlyMw)
 app.get('/api/health', (_req, res) =>
   res.json({ code: 0, message: 'ok', data: { service: 'quiz-svc', status: 'healthy' } }),
 )

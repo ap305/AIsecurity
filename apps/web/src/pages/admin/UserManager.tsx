@@ -1,6 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { apiDelete, apiGet, apiPut } from '../../lib/api'
+import { apiDelete, apiGet } from '../../lib/api'
+import {
+  fetchAuthEvents,
+  recoverInitialPassword,
+  setUserPassword,
+  type AuthEvent,
+  type PasswordRecovery,
+} from '../../lib/adminAuth'
 import {
   createTestAccount,
   setTestAccountStatus,
@@ -43,6 +50,24 @@ export default function UserManager() {
   })
   const [pendingAction, setPendingAction] = useState<string | null>(null)
   const pendingActionRef = useRef<string | null>(null)
+  const [passwordUser, setPasswordUser] = useState<AdminUser | null>(null)
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [identityVerified, setIdentityVerified] = useState(false)
+  const [recovery, setRecovery] = useState<PasswordRecovery | null>(null)
+  const [manualResetEnabled, setManualResetEnabled] = useState(false)
+  const [eventUser, setEventUser] = useState<AdminUser | null>(null)
+  const [authEvents, setAuthEvents] = useState<AuthEvent[]>([])
+  const eventRequest = useRef(0)
+
+  useEffect(() => {
+    if (!recovery) return
+    const timer = setTimeout(
+      () => setRecovery(null),
+      Math.max(0, Date.parse(recovery.expiresAt) - Date.now()),
+    )
+    return () => clearTimeout(timer)
+  }, [recovery])
 
   const startAction = (key: string) => {
     if (pendingActionRef.current !== null) return false
@@ -72,6 +97,16 @@ export default function UserManager() {
 
   useEffect(() => {
     fetchUsers()
+    let active = true
+    apiGet<{ manualResetEnabled: boolean }>('/auth/config')
+      .then((data) => {
+        if (active) setManualResetEnabled(data.manualResetEnabled === true)
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+      eventRequest.current++
+    }
   }, [fetchUsers])
 
   const handleCreateAccount = async (event: FormEvent<HTMLFormElement>) => {
@@ -116,15 +151,73 @@ export default function UserManager() {
     }
   }
 
-  const handleResetPassword = async (u: AdminUser) => {
-    if (pendingActionRef.current !== null) return
-    if (!window.confirm(`确认重置 ${u.displayName}（${u.username}）的密码为 student123？`)) return
-    if (!startAction(u.id)) return
+  const openPasswordEditor = (u: AdminUser) => {
+    setPasswordUser(u)
+    setNewPassword('')
+    setConfirmPassword('')
+    setIdentityVerified(false)
+    setRecovery(null)
+    setError(null)
+  }
+
+  const handleResetPassword = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!passwordUser || !startAction(`password:${passwordUser.id}`)) return
+    setError(null)
     try {
-      await apiPut(`/admin/users/${u.id}/password`, { password: 'student123' })
-      alert(`已重置 ${u.displayName} 的密码为 student123`)
+      await setUserPassword(passwordUser.id, newPassword, confirmPassword)
+      setNotice(`已为 ${passwordUser.username} 设置独立新密码。其他登录已失效，该账号登录后须先修改密码。`)
+      setNewPassword('')
+      setConfirmPassword('')
+      setPasswordUser(null)
+      setRecovery(null)
+      await fetchUsers()
     } catch (e) {
-      alert(`重置失败：${e instanceof Error ? e.message : '未知错误'}`)
+      setError(`设置失败：${e instanceof Error ? e.message : '请重试'}`)
+    } finally {
+      finishAction()
+    }
+  }
+
+  const handleRecoverPassword = async () => {
+    if (!passwordUser || !manualResetEnabled || !identityVerified || pendingActionRef.current !== null) return
+    if (
+      !window.confirm(
+        `已核验 ${passwordUser.displayName}（${passwordUser.username}）的身份，确认恢复初始密码？原有登录将失效；恢复凭据仅 15 分钟内有效，须首次改密。`,
+      )
+    )
+      return
+    if (!startAction(`password:${passwordUser.id}`)) return
+    setError(null)
+    setRecovery(null)
+    try {
+      const result = await recoverInitialPassword(passwordUser.id, identityVerified)
+      setRecovery(result)
+      setIdentityVerified(false)
+      setNewPassword('')
+      setConfirmPassword('')
+      setNotice(
+        `已恢复 ${passwordUser.username} 的初始密码。请通过已核验的人工渠道交付，下方凭据关闭后不再显示。`,
+      )
+    } catch (e) {
+      setError(`恢复失败：${e instanceof Error ? e.message : '请重试'}`)
+    } finally {
+      finishAction()
+    }
+  }
+
+  const showAuthEvents = async (u: AdminUser) => {
+    if (!startAction(`events:${u.id}`)) return
+    const version = ++eventRequest.current
+    setEventUser(u)
+    setAuthEvents([])
+    setError(null)
+    try {
+      const events = await fetchAuthEvents(u.id)
+      if (version === eventRequest.current) setAuthEvents(events)
+    } catch (e) {
+      if (version === eventRequest.current)
+        setError(e instanceof Error ? e.message : '安全事件加载失败，请重试。')
     } finally {
       finishAction()
     }
@@ -181,6 +274,134 @@ export default function UserManager() {
         }}
         onSubmit={handleCreateAccount}
       />
+
+      {passwordUser && (
+        <section className="prd-panel" style={{ margin: '16px 0' }} aria-labelledby="password-reset-title">
+          <h2 id="password-reset-title">
+            设置密码：{passwordUser.displayName}（{passwordUser.username}）
+          </h2>
+          <p>请为该账号单独输入新密码。成功后原有登录撤销，使用新密码登录后须先改密。</p>
+          <form onSubmit={handleResetPassword}>
+            <div className="prd-grid">
+              <label className="prd-label">
+                独立新密码（15～128 个字符）
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  className="prd-input"
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  required
+                />
+              </label>
+              <label className="prd-label">
+                确认新密码
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  className="prd-input"
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  required
+                />
+              </label>
+            </div>
+            <button className="prd-button primary" type="submit" disabled={pendingAction !== null}>
+              {pendingAction === `password:${passwordUser.id}` ? '处理中…' : '确认设置新密码'}
+            </button>
+          </form>
+          {manualResetEnabled && (
+            <div style={{ marginTop: 20 }}>
+              <p>人工恢复初始密码：核验身份后操作，恢复凭据在 15 分钟内有效且首次登录必须改密。</p>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={identityVerified}
+                  onChange={(event) => setIdentityVerified(event.target.checked)}
+                />{' '}
+                我已人工核验此账号使用者身份
+              </label>{' '}
+              <button
+                className="prd-button"
+                type="button"
+                disabled={!identityVerified || pendingAction !== null}
+                onClick={handleRecoverPassword}
+              >
+                恢复初始密码
+              </button>
+            </div>
+          )}
+          {recovery && (
+            <div className="prd-notice" role="status">
+              <p>仅本次显示，请通过已核验的人工渠道交付，不要发布到群聊。</p>
+              <p>
+                恢复密码：<code>{recovery.temporaryPassword}</code>
+              </p>
+              <p>有效期至：{formatDate(recovery.expiresAt)}；首次登录必须修改密码。</p>
+              <button className="prd-button" type="button" onClick={() => setRecovery(null)}>
+                已交付，隐藏凭据
+              </button>
+            </div>
+          )}
+          <button
+            className="prd-button"
+            type="button"
+            disabled={pendingAction !== null}
+            style={{ marginTop: 12 }}
+            onClick={() => {
+              setPasswordUser(null)
+              setRecovery(null)
+              setNewPassword('')
+              setConfirmPassword('')
+              setIdentityVerified(false)
+            }}
+          >
+            关闭密码操作
+          </button>
+        </section>
+      )}
+
+      {eventUser && (
+        <section className="prd-panel" style={{ margin: '16px 0' }} aria-labelledby="auth-events-title">
+          <h2 id="auth-events-title">最近安全事件：{eventUser.username}</h2>
+          {pendingAction === `events:${eventUser.id}` ? (
+            <p role="status">加载中…</p>
+          ) : authEvents.length === 0 ? (
+            <p>暂无安全事件。</p>
+          ) : (
+            <ul>
+              {authEvents.map((event) => (
+                <li key={event.id}>
+                  {formatDate(event.createdAt)} · {event.action || event.type} ·{' '}
+                  {event.success ? '成功' : '失败'}
+                  {event.actorId ? ` · 操作人 ${event.actorId}` : ''}
+                </li>
+              ))}
+            </ul>
+          )}
+          <button
+            className="prd-button"
+            type="button"
+            disabled={pendingAction !== null}
+            onClick={() => {
+              void showAuthEvents(eventUser)
+            }}
+          >
+            刷新事件
+          </button>{' '}
+          <button
+            className="prd-button"
+            type="button"
+            onClick={() => {
+              eventRequest.current++
+              setEventUser(null)
+              setAuthEvents([])
+            }}
+          >
+            关闭事件
+          </button>
+        </section>
+      )}
 
       {notice && (
         <div
@@ -373,6 +594,7 @@ export default function UserManager() {
                 <th style={thStyle}>账号类型</th>
                 <th style={thStyle}>状态</th>
                 <th style={thStyle}>注册时间</th>
+                <th style={thStyle}>最近登录</th>
                 <th style={{ ...thStyle, textAlign: 'center' }}>操作</th>
               </tr>
             </thead>
@@ -433,7 +655,18 @@ export default function UserManager() {
                       {formatDate(u.createdAt)}
                     </span>
                   </td>
+                  <td style={{ padding: '12px 16px' }}>{u.lastLoginAt ? formatDate(u.lastLoginAt) : '—'}</td>
                   <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                    <button
+                      className="prd-button"
+                      type="button"
+                      disabled={pendingAction !== null}
+                      onClick={() => {
+                        void showAuthEvents(u)
+                      }}
+                    >
+                      安全事件
+                    </button>{' '}
                     {u.role !== 'admin' && (
                       <div
                         style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}
@@ -464,7 +697,7 @@ export default function UserManager() {
                         )}
                         <button
                           disabled={pendingAction !== null}
-                          onClick={() => handleResetPassword(u)}
+                          onClick={() => openPasswordEditor(u)}
                           style={{
                             padding: '3px 10px',
                             fontSize: 11,
@@ -476,7 +709,7 @@ export default function UserManager() {
                             fontFamily: 'inherit',
                           }}
                         >
-                          重置密码
+                          设置密码 / 人工恢复
                         </button>
                         <button
                           disabled={pendingAction !== null}
