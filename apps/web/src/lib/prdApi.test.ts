@@ -133,3 +133,26 @@ test('an unqualified or stale submission is finished even without a numeric scor
     assert.equal(dynamicSummary(submission).qualified, false)
   }
 })
+
+for (const stalled of ['fetch', 'body'] as const) {
+  test(`teacher lease reads, starts and renewals reject a stalled ${stalled} within one minute`, async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    let release!: (value: Response) => void
+    const delayed = new Promise<Response>((resolve) => { release = resolve })
+    t.after(() => release(Response.json({ code: 0, data: null })))
+    let readingBody = false
+    t.mock.method(globalThis, 'fetch', async () => stalled === 'fetch'
+      ? delayed
+      : new Response(new ReadableStream({ pull() { readingBody = true } })))
+    const outcomes = ['pending', 'pending', 'pending']
+    const pending = [prdApi.lease('Q1'), prdApi.startLease('Q1'), prdApi.renewLease('Q1')].map((request, index) =>
+      request.then(() => { outcomes[index] = 'resolved' }, () => { outcomes[index] = 'rejected' }),
+    )
+    await new Promise<void>((done) => setImmediate(done))
+    if (stalled === 'body') assert.equal(readingBody, true)
+    t.mock.timers.tick(60000)
+    await new Promise<void>((done) => setImmediate(done))
+    assert.deepEqual([...outcomes], ['rejected', 'rejected', 'rejected'])
+    await Promise.all(pending)
+  })
+}

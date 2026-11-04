@@ -393,9 +393,9 @@ export const prdApi = {
       : apiPost<ApiPoolItem>('/admin/api-pool', body),
   lease: (id: string) => apiGet<TeacherLease | null>(`/questions/${encodeURIComponent(id)}/teacher-lease`, 30000),
   startLease: (id: string) =>
-    apiPost<TeacherLease>(`/questions/${encodeURIComponent(id)}/teacher-lease/start`, {}),
+    apiPost<TeacherLease>(`/questions/${encodeURIComponent(id)}/teacher-lease/start`, {}, 30000),
   renewLease: (id: string) =>
-    apiPost<TeacherLease>(`/questions/${encodeURIComponent(id)}/teacher-lease/renew`, {}),
+    apiPost<TeacherLease>(`/questions/${encodeURIComponent(id)}/teacher-lease/renew`, {}, 30000),
   leases: () => apiGet<TeacherLease[]>('/admin/teacher-leases'),
   revokeLease: (id: string) =>
     apiPost<TeacherLease>(`/admin/teacher-leases/${encodeURIComponent(id)}/revoke`, {}),

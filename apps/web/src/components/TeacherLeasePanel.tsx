@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { getAuthToken } from '../lib/api'
 import { prdApi, type TeacherLease } from '../lib/prdApi'
 
 const labels: Record<string, string> = {
@@ -40,6 +41,18 @@ export default function TeacherLeasePanel({
   const [now, setNow] = useState(Date.now())
   const [copyState, setCopyState] = useState('')
   const anchor = useRef({ serverMs: Date.now(), monotonicMs: performance.now() })
+  const token = getAuthToken()
+  const requestScope = useRef({ questionId, questionVersion, token, request: 0, applied: 0, busy: false, active: false })
+  if (
+    requestScope.current.questionId !== questionId ||
+    requestScope.current.questionVersion !== questionVersion ||
+    requestScope.current.token !== token
+  ) requestScope.current = { questionId, questionVersion, token, request: 0, applied: 0, busy: false, active: false }
+  const scope = requestScope.current
+  const isActiveScope = () =>
+    requestScope.current === scope && scope.active && token === getAuthToken()
+  const isCurrent = (request: number) =>
+    isActiveScope() && request >= scope.applied
   const accept = (value: TeacherLease | null) => {
     setLease(value)
     if (value?.serverTime) {
@@ -47,35 +60,45 @@ export default function TeacherLeasePanel({
       setNow(anchor.current.serverMs)
     }
   }
+  const refresh = async () => {
+    if (scope.busy || !isActiveScope()) return
+    const request = ++scope.request
+    try {
+      const value = await prdApi.lease(questionId)
+      if (isCurrent(request)) {
+        scope.applied = request
+        accept(value)
+        setError('')
+      }
+    } catch (err) {
+      if (isCurrent(request)) {
+        scope.applied = request
+        setError(err instanceof Error ? err.message : '租约状态查询失败。')
+      }
+    } finally {
+      if (isCurrent(request)) setLoading(false)
+    }
+  }
   useEffect(() => {
-    let stopped = false
+    scope.active = true
+    scope.busy = false
+    setBusy(false)
     setLoading(true)
     setLease(null)
     setError('')
-    const refresh = async () => {
-      try {
-        const value = await prdApi.lease(questionId)
-        if (!stopped) {
-          accept(value)
-          setError('')
-        }
-      } catch (err) {
-        if (!stopped) setError(err instanceof Error ? err.message : '租约状态查询失败。')
-      } finally {
-        if (!stopped) setLoading(false)
-      }
-    }
+    setCopyState('')
     void refresh()
     const timer = setInterval(() => {
       setNow(anchor.current.serverMs + performance.now() - anchor.current.monotonicMs)
     }, 1000)
     const statusTimer = setInterval(refresh, 15000)
     return () => {
-      stopped = true
+      scope.active = false
+      scope.applied = ++scope.request
       clearInterval(timer)
       clearInterval(statusTimer)
     }
-  }, [questionId, questionVersion])
+  }, [questionId, questionVersion, token])
   const remaining = lease?.expiresAt ? Math.max(0, Math.ceil((Date.parse(lease.expiresAt) - now) / 1000)) : 0
   const expired =
     lease?.state === 'expired' || (lease?.state === 'active' && !!lease.expiresAt && remaining === 0)
@@ -86,14 +109,23 @@ export default function TeacherLeasePanel({
   )
   const currentLease = controls.isCurrentVersion ? lease : null
   const perform = async (renew: boolean) => {
+    if (scope.busy || !isActiveScope()) return
+    scope.busy = true
+    // A mutation supersedes earlier status reads; polling waits until it settles.
+    const request = ++scope.request
+    scope.applied = request
     setBusy(true)
     setError('')
     try {
-      accept(renew ? await prdApi.renewLease(questionId) : await prdApi.startLease(questionId))
+      const value = renew ? await prdApi.renewLease(questionId) : await prdApi.startLease(questionId)
+      if (isCurrent(request)) accept(value)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '操作失败。')
+      if (isCurrent(request)) setError(err instanceof Error ? err.message : '操作失败。')
     } finally {
-      setBusy(false)
+      if (isCurrent(request)) {
+        scope.busy = false
+        setBusy(false)
+      }
     }
   }
   const copy = async (value: string) => {
@@ -171,7 +203,10 @@ export default function TeacherLeasePanel({
       )}
       {error && (
         <div className="prd-error" role="alert">
-          {error}
+          {error}{' '}
+          <button className="prd-button" disabled={busy} onClick={refresh}>
+            重新查询租约
+          </button>
         </div>
       )}
     </section>
