@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   libraryTypes,
   questionLibraryLabel,
@@ -39,17 +39,23 @@ function newQuestion(): QuestionRecord {
 export default function QuestionEditor() {
   const [params, setParams] = useSearchParams()
   const library = params.get('library') || ''
+  const search = params.get('q') || ''
   const [questions, setQuestions] = useState<QuestionRecord[]>([])
   const [form, setForm] = useState<QuestionRecord | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [original, setOriginal] = useState<QuestionRecord | null>(null)
   const [resources, setResources] = useState<Resource[]>([])
-  const [search, setSearch] = useState('')
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [definitionValid, setDefinitionValid] = useState(true)
+  const setFilter = (key: 'library' | 'q', value: string) => {
+    const filters = new URLSearchParams(params)
+    if (value) filters.set(key, value)
+    else filters.delete(key)
+    setParams(filters, { replace: true })
+  }
   const load = async () => {
     setLoading(true)
     try {
@@ -411,9 +417,7 @@ export default function QuestionEditor() {
               className="prd-input"
               aria-label="按题库类型筛选"
               value={library}
-              onChange={(e) =>
-                setParams(e.target.value ? { library: e.target.value } : {}, { replace: true })
-              }
+              onChange={(e) => setFilter('library', e.target.value)}
             >
               <option value="">全部题库类型</option>
               {Object.entries(libraryTypes).map(([id, label]) => (
@@ -427,7 +431,7 @@ export default function QuestionEditor() {
               aria-label="搜索管理题目"
               placeholder="搜索题名或 ID"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => setFilter('q', e.target.value)}
             />
             <button className="prd-button" onClick={() => void load()}>
               刷新列表
@@ -465,6 +469,16 @@ export default function QuestionEditor() {
                           <button className="prd-button" disabled={busy} onClick={() => void edit(q)}>
                             完整配置
                           </button>{' '}
+                          <Link
+                            className="prd-button"
+                            aria-label={`评测记录（${q.id}）`}
+                            to={{
+                              pathname: `/admin/questions/${encodeURIComponent(q.id)}/evaluation-runs`,
+                              search: params.toString(),
+                            }}
+                          >
+                            评测记录
+                          </Link>{' '}
                           <button
                             className="prd-button danger"
                             disabled={busy || q.status === 'archived'}

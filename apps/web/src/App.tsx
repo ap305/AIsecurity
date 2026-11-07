@@ -13,6 +13,7 @@ import Leaderboard from './pages/Leaderboard'
 import Help from './pages/Help'
 import AdminDashboard from './pages/admin/AdminDashboard'
 import QuestionEditor from './pages/admin/QuestionEditor'
+import QuestionEvaluationRuns from './pages/admin/QuestionEvaluationRuns'
 import QuestionReview from './pages/admin/QuestionReview'
 import UserManager from './pages/admin/UserManager'
 import StudentScores from './pages/admin/StudentScores'
@@ -120,6 +121,7 @@ export default function App() {
             <Route element={<ProtectedRoute requireAdmin />}>
               <Route path="/admin" element={<AdminDashboard />} />
               <Route path="/admin/questions" element={<QuestionEditor />} />
+              <Route path="/admin/questions/:id/evaluation-runs" element={<QuestionEvaluationRuns />} />
               <Route path="/admin/review" element={<QuestionReview />} />
               <Route path="/admin/users" element={<UserManager />} />
               <Route path="/admin/student-scores" element={<StudentScores />} />

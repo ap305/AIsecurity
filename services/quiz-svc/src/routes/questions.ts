@@ -5,6 +5,7 @@ import { RequestError } from '../lib/prdContract.js'
 import { questionView, saveQuestion } from '../services/questions.js'
 import { PackageValidationError } from '../lib/evaluationPackage.js'
 import { arenaQuestionScore } from '../services/arenaQueries.js'
+import { listQuestionEvaluationRuns } from '../services/adminQuestionEvaluationRuns.js'
 const router = Router()
 const ok = (res: any, data: any) => res.json({ code: 0, message: 'ok', data })
 const fail = (res: any, error: any) =>
@@ -153,6 +154,15 @@ router.get('/admin/questions/:id', async (req, res) => {
     const row = await prisma.question.findUnique({ where: { id: req.params.id } })
     if (!row) throw new RequestError('题目不存在', 404)
     ok(res, questionView(row, true))
+  } catch (e) {
+    fail(res, e)
+  }
+})
+router.get('/admin/questions/:id/evaluation-runs', async (req, res) => {
+  try {
+    const data = await listQuestionEvaluationRuns(req.params.id, req.query)
+    res.set('Cache-Control', 'private, no-store')
+    ok(res, data)
   } catch (e) {
     fail(res, e)
   }

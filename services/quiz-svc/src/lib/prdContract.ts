@@ -44,6 +44,14 @@ export class RequestError extends Error {
   }
 }
 
+export function pageNumber(value: unknown, fallback: number, name: string) {
+  if (value === undefined || value === '') return fallback
+  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) throw new RequestError(`${name}必须是正整数`)
+  const parsed = Number(value)
+  if (!Number.isSafeInteger(parsed)) throw new RequestError(`${name}超出支持范围`)
+  return parsed
+}
+
 export function parseJson<T>(value: string | null | undefined, fallback: T): T {
   try {
     return value ? (JSON.parse(value) as T) : fallback

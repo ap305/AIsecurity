@@ -1,6 +1,6 @@
 import type { Prisma } from '@prisma/client'
 import { prisma } from '../lib/db.js'
-import { normalizeCategory, parseJson, RequestError } from '../lib/prdContract.js'
+import { normalizeCategory, pageNumber, parseJson, RequestError } from '../lib/prdContract.js'
 import { isCurrentArenaSubmission } from './arenaRules.js'
 
 const studentSelect = {
@@ -292,13 +292,6 @@ function summary(student: Student, rows: AdminStudentQuestionScore[]): AdminStud
         .sort()
         .at(-1) ?? null,
   }
-}
-function pageNumber(value: unknown, fallback: number, name: string) {
-  if (value === undefined || value === '') return fallback
-  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) throw new RequestError(`${name}必须是正整数`)
-  const parsed = Number(value)
-  if (!Number.isSafeInteger(parsed)) throw new RequestError(`${name}超出支持范围`)
-  return parsed
 }
 export async function listAdminStudentScores(input: {
   search?: unknown
