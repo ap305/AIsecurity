@@ -1,28 +1,27 @@
 /* ============================================================
-   AI安全教学实验系统 — 暗色科技风 (Dark Tech)
-   Spec #4 颜色系统精确落地
+   AI安全教学实验系统 — 共享颜色、排版与页面外壳
    ============================================================ */
 
 /* --- CSS Custom Properties --- */
 :root {
   /* Background */
-  --bg-primary: #0a0e17;
-  --bg-secondary: #0d1221;
-  --bg-card: #111827;
-  --bg-card-hover: #161f33;
+  --bg-primary: #0b1220;
+  --bg-secondary: #101a2b;
+  --bg-card: #152136;
+  --bg-card-hover: #1a2941;
 
   /* Border */
-  --border-color: #1e2d45;
-  --border-color-light: #2a3a55;
+  --border-color: #2a3b53;
+  --border-color-light: #425873;
 
   /* Text */
-  --text-primary: #c8d6e5;
-  --text-secondary: #8899aa;
-  --text-muted: #5a6a7a;
+  --text-primary: #e6edf6;
+  --text-secondary: #a7b8cc;
+  --text-muted: #8396ae;
 
   /* Brand */
-  --brand-cyan: #00d4ff;
-  --brand-cyan-dim: rgba(0, 212, 255, 0.15);
+  --brand-cyan: #62c5f8;
+  --brand-cyan-dim: rgba(98, 197, 248, 0.1);
 
   /* Module colors */
   --color-m1: #00d4ff;
@@ -44,17 +43,19 @@
   --info: #00d4ff;
 
   /* Sizing */
-  --topbar-height: 48px;
-  --sidebar-width: 180px;
+  --topbar-height: 60px;
+  --sidebar-width: 208px;
+  --footer-height: 32px;
 
   /* Typography */
   --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
-  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
-    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
+    sans-serif;
 
   /* Shadows */
-  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.3);
-  --shadow-card-hover: 0 4px 20px rgba(0, 0, 0, 0.5);
+  --shadow-card: 0 6px 20px rgba(2, 8, 20, 0.16);
+  --shadow-card-hover: 0 10px 28px rgba(2, 8, 20, 0.24);
 
   /* Transitions */
   --transition-fast: 150ms ease;
@@ -110,11 +111,239 @@ a:hover {
 
 .main-content {
   flex: 1;
+  min-width: 0;
   margin-left: var(--sidebar-width);
-  padding: 24px 32px;
+  padding: 28px 32px;
   min-height: calc(100vh - var(--topbar-height));
-  padding-bottom: 44px;
+  padding-bottom: calc(var(--footer-height) + 24px);
   overflow-y: auto;
+}
+
+.app-topbar {
+  position: fixed;
+  inset: 0 0 auto;
+  height: var(--topbar-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 0 24px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  z-index: 100;
+}
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  color: var(--text-primary);
+}
+.topbar-mark {
+  width: 34px;
+  height: 38px;
+  color: var(--brand-cyan);
+}
+.topbar-brand-text {
+  display: grid;
+  gap: 1px;
+}
+.topbar-brand-text strong {
+  font-size: 15px;
+  letter-spacing: 1.2px;
+  line-height: 1.4;
+}
+.topbar-brand-text strong span {
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+.topbar-brand-text small {
+  font-size: 11px;
+  color: var(--text-secondary);
+  letter-spacing: 0.5px;
+}
+.topbar-nav,
+.topbar-account {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.topbar-nav a {
+  padding: 8px 14px;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.topbar-nav a[aria-current],
+.topbar-nav a:hover {
+  color: var(--brand-cyan);
+  background: var(--brand-cyan-dim);
+}
+.topbar-avatar {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border: 1px solid var(--border-color-light);
+  border-radius: 50%;
+  background: var(--bg-card);
+  font-weight: 600;
+}
+.topbar-user-name {
+  max-width: 150px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.topbar-user-badge {
+  font-size: 11px;
+  white-space: nowrap;
+}
+.topbar-logout {
+  padding: 6px 11px;
+  margin-left: 6px;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.topbar-logout:hover:not(:disabled) {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.topbar-logout:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.app-sidebar {
+  position: fixed;
+  top: var(--topbar-height);
+  left: 0;
+  bottom: var(--footer-height);
+  width: var(--sidebar-width);
+  padding: 20px 14px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
+  overflow-y: auto;
+  z-index: 50;
+}
+.sidebar-caption {
+  padding: 0 14px 10px;
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+.sidebar-admin {
+  margin-top: 24px;
+}
+.sidebar-link {
+  display: block;
+  padding: 10px 14px;
+  margin-bottom: 4px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  border: 1px solid transparent;
+}
+.sidebar-link[aria-current] {
+  color: var(--brand-cyan);
+  background: var(--brand-cyan-dim);
+  border-color: rgba(98, 197, 248, 0.22);
+  font-weight: 600;
+}
+.site-footer {
+  position: fixed;
+  inset: auto 0 0;
+  height: var(--footer-height);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 0 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+  z-index: 100;
+}
+.site-footer a {
+  white-space: nowrap;
+}
+.skip-to-content {
+  position: fixed;
+  top: -80px;
+  left: 16px;
+  padding: 8px 14px;
+  background: var(--brand-cyan);
+  color: var(--bg-primary);
+  border-radius: 6px;
+  z-index: 200;
+}
+.skip-to-content:focus {
+  top: 10px;
+}
+@media (max-width: 1080px) {
+  .topbar-nav {
+    display: none;
+  }
+  .main-content {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+}
+@media (max-width: 600px) {
+  .app-topbar {
+    padding: 0 12px;
+    gap: 12px;
+  }
+  .topbar-user-name {
+    max-width: 88px;
+  }
+  .topbar-user-badge {
+    display: none;
+  }
+  .main-content {
+    padding: 18px 12px calc(var(--footer-height) + 20px);
+  }
+  .sidebar-link {
+    border: 0;
+  }
+}
+@media (max-width: 520px) {
+  :root {
+    --footer-height: 48px;
+  }
+  .site-footer {
+    flex-direction: column;
+    gap: 0;
+  }
+  .topbar-brand-text strong {
+    font-size: 13px;
+  }
+  .topbar-brand-text strong span {
+    display: none;
+  }
+  .topbar-brand-text small {
+    font-size: 10px;
+  }
+  .topbar-mark {
+    width: 27px;
+  }
+  .topbar-account {
+    gap: 6px;
+  }
+  .topbar-avatar {
+    display: none;
+  }
+  .topbar-logout {
+    margin-left: 0;
+  }
 }
 
 /* --- Scrollbar --- */
@@ -167,8 +396,14 @@ a:hover {
 }
 
 .btn-primary:hover {
-  background: #33ddff;
-  box-shadow: 0 0 16px rgba(0, 212, 255, 0.3);
+  background: #89d5fc;
+  box-shadow: 0 4px 16px rgba(98, 197, 248, 0.16);
+}
+.btn-primary:disabled,
+.btn-ghost:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
 }
 
 .btn-ghost {
@@ -221,16 +456,37 @@ a:hover {
   align-items: center;
   justify-content: center;
   min-height: 100vh;
-  background: var(--bg-primary);
+  padding: 32px 20px calc(var(--footer-height) + 32px);
+  background: radial-gradient(ellipse at 50% 10%, #182e49 0%, var(--bg-primary) 65%);
 }
 
 .login-card {
-  width: 400px;
-  padding: 40px;
+  width: min(440px, 100%);
+  max-width: 100%;
+  padding: 36px;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
-  box-shadow: var(--shadow-card);
+  border-radius: 16px;
+  box-shadow: 0 18px 55px rgba(2, 8, 20, 0.3);
+}
+.login-card label {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.login-card form .btn-ghost {
+  margin-top: 8px;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+.login-card > .btn-ghost {
+  margin-top: 14px;
+}
+.login-card [role='status'] {
+  margin: 12px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 
 /* --- Markdown Content --- */
@@ -364,7 +620,17 @@ a:hover {
 }
 
 @media (max-width: 520px) {
-  .login-page { padding: 20px 12px 48px; align-items: flex-start; }
-  .login-card { width: 100%; min-width: 0; padding: 24px 18px; }
-  .login-card input { min-width: 0; font-size: 16px; }
+  .login-page {
+    padding: 24px 12px calc(var(--footer-height) + 24px);
+    align-items: flex-start;
+  }
+  .login-card {
+    width: 100%;
+    min-width: 0;
+    padding: 24px 18px;
+  }
+  .login-card input {
+    min-width: 0;
+    font-size: 16px;
+  }
 }

@@ -10,7 +10,7 @@
 }
 .hall-library-tabs {
   display: flex;
-  padding: 4px;
+  padding: 5px;
   gap: 4px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
@@ -22,12 +22,13 @@
   color: var(--text-secondary);
   font-size: 14px;
   text-decoration: none;
+  white-space: nowrap;
 }
 .hall-library-tabs a[aria-current] {
   background: var(--brand-cyan-dim);
   color: var(--brand-cyan);
   font-weight: 600;
-  box-shadow: inset 0 0 0 1px #00d4ff30;
+  box-shadow: inset 0 0 0 1px var(--border-color-light);
 }
 .hall-library-tabs a:hover {
   color: var(--text-primary);
@@ -37,13 +38,14 @@
   justify-content: space-between;
   gap: 24px;
   align-items: center;
-  margin-bottom: 24px;
+  margin-bottom: 28px;
 }
 .hall-eyebrow {
   color: var(--brand-cyan);
   font-size: 12px;
   letter-spacing: 0.1em;
   margin-bottom: 8px;
+  font-weight: 600;
 }
 .hall-heading p {
   max-width: 740px;
@@ -56,11 +58,12 @@
   flex-shrink: 0;
 }
 .hall-progress div {
-  min-width: 86px;
-  padding: 14px 16px;
+  min-width: 100px;
+  padding: 14px 18px;
   border-radius: 12px;
   border: 1px solid var(--border-color);
-  background: linear-gradient(145deg, var(--bg-card), var(--bg-secondary));
+  background: var(--bg-card);
+  box-shadow: var(--shadow-card);
 }
 .hall-progress dt {
   font-size: 12px;
@@ -68,9 +71,14 @@
 }
 .hall-progress dd {
   margin: 6px 0 0;
-  font-size: 25px;
+  font-size: 27px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+.hall-progress div:last-child dd {
+  color: var(--brand-cyan);
 }
 .hall-scenarios {
   display: flex;
@@ -80,11 +88,17 @@
 }
 .hall-scenarios button {
   border: 1px solid var(--border-color);
-  border-radius: 18px;
+  border-radius: 8px;
   background: var(--bg-secondary);
   color: var(--text-secondary);
-  padding: 7px 13px;
+  padding: 8px 13px;
+  font: inherit;
+  font-size: 12px;
   cursor: pointer;
+}
+.hall-scenarios button:hover {
+  border-color: var(--border-color-light);
+  color: var(--text-primary);
 }
 .hall-scenarios button.selected {
   border-color: var(--brand-cyan);
@@ -96,10 +110,10 @@
   align-items: end;
   gap: 12px;
   flex-wrap: wrap;
-  padding: 18px;
+  padding: 20px;
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-secondary);
+  border-radius: 12px;
+  background: var(--bg-card);
 }
 .hall-filter,
 .hall-search {
@@ -114,6 +128,10 @@
 .hall-search {
   flex: 3 1 260px;
 }
+.hall-search > span,
+.hall-filter > span {
+  font-weight: 500;
+}
 .hall-filter .prd-input,
 .hall-search .prd-input {
   width: 100%;
@@ -127,13 +145,15 @@
   font-size: 13px;
   color: var(--text-secondary);
   gap: 12px;
+  flex-wrap: wrap;
 }
 .hall-table-heading select {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 5px;
+  border-radius: 7px;
   color: var(--text-primary);
-  padding: 6px;
+  padding: 7px 10px;
+  font: inherit;
 }
 .hall-text-button {
   border: none;
@@ -141,20 +161,29 @@
   color: var(--brand-cyan);
   cursor: pointer;
   margin-left: 12px;
+  padding: 7px 0;
+  font: inherit;
 }
-.hall-table-panel {
+.question-hall .hall-table-panel {
   padding: 0;
 }
 .hall-table th {
   white-space: nowrap;
 }
 .hall-table td {
-  padding-top: 18px;
-  padding-bottom: 18px;
+  padding-top: 19px;
+  padding-bottom: 19px;
+}
+.hall-table th:first-child,
+.hall-table td:first-child:not([colspan]) {
+  width: 150px;
+}
+.hall-table th:last-child,
+.hall-table .hall-score {
+  text-align: right;
 }
 .hall-question-link {
   display: flex;
-  gap: 10px;
   align-items: flex-start;
   flex-direction: column-reverse;
   gap: 5px;
@@ -163,20 +192,20 @@
 .hall-question-link strong {
   font-weight: 600;
   line-height: 1.6;
-  font-size: 14px;
+  font-size: 15px;
   color: var(--text-primary);
 }
 .hall-question-link:hover strong {
   color: var(--brand-cyan);
 }
 .hall-question-number {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
-  font-family: monospace;
+  font-family: var(--font-mono);
 }
 .hall-question-meta {
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
   margin-top: 6px;
   line-height: 1.5;
   font-weight: normal;
@@ -188,28 +217,46 @@
   white-space: nowrap;
 }
 .hall-state {
+  display: inline-block;
+  padding: 4px 9px;
+  border-radius: 6px;
+  background: var(--bg-secondary);
   color: var(--text-secondary);
 }
 .hall-state-scored,
 .hall-difficulty-L1 {
-  color: #47c79b;
+  color: var(--success);
+}
+.hall-state-scored {
+  background: rgba(72, 219, 128, 0.08);
 }
 .hall-state-running,
 .hall-role-defense {
   color: var(--brand-cyan);
 }
+.hall-state-running {
+  background: var(--brand-cyan-dim);
+}
+.hall-state-attempted {
+  color: var(--warning);
+  background: rgba(255, 184, 77, 0.08);
+}
 .hall-state-error,
 .hall-role-attack,
 .hall-difficulty-L3 {
-  color: #ed8b91;
+  color: var(--danger);
+}
+.hall-state-error {
+  background: rgba(255, 107, 107, 0.08);
 }
 .hall-difficulty-L2 {
-  color: #dfb86c;
+  color: var(--warning);
 }
-.hall-score {
+.hall-table .hall-score {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   font-size: 16px;
+  white-space: nowrap;
 }
 .hall-table thead {
   background: var(--bg-secondary);
@@ -219,11 +266,15 @@
 }
 .hall-empty {
   text-align: center;
-  padding: 44px 18px;
+  padding: 56px 20px;
+}
+.hall-empty strong {
+  font-size: 17px;
 }
 .hall-empty p {
   color: var(--text-secondary);
   font-size: 13px;
+  margin: 8px 0 18px;
 }
 .hall-footer {
   display: flex;
@@ -258,6 +309,12 @@
   }
 }
 @media (max-width: 700px) {
+  .hall-heading {
+    gap: 18px;
+  }
+  .hall-toolbar {
+    flex-wrap: wrap;
+  }
   .hall-library-tabs a {
     padding: 9px 13px;
   }
@@ -270,7 +327,10 @@
     padding: 12px;
   }
   .hall-controls {
-    padding: 12px;
+    padding: 14px;
+  }
+  .hall-search {
+    flex-basis: 100%;
   }
   .hall-footer {
     align-items: stretch;

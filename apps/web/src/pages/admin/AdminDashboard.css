@@ -1,0 +1,117 @@
+.admin-dashboard-heading {
+  margin-bottom: 26px;
+}
+.admin-dashboard-eyebrow {
+  display: inline-block;
+  margin-bottom: 8px;
+  color: var(--brand-cyan);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+.admin-dashboard-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin: 0 0 32px;
+}
+.admin-dashboard-stat {
+  min-width: 0;
+  padding: 22px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-card);
+}
+.admin-dashboard-stat dt {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.admin-dashboard-stat dd {
+  margin: 10px 0 0;
+  color: var(--text-primary);
+  font-size: 32px;
+  font-weight: 650;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+}
+.admin-dashboard-stat:first-child {
+  background: linear-gradient(135deg, var(--brand-cyan-dim), var(--bg-card));
+}
+.admin-dashboard-stat:first-child dd {
+  color: var(--brand-cyan);
+}
+.admin-dashboard-section {
+  margin-bottom: 30px;
+}
+.admin-dashboard-libraries,
+.admin-dashboard-tools {
+  display: grid;
+  gap: 14px;
+}
+.admin-dashboard-libraries {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.admin-dashboard-tools {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.admin-dashboard-link {
+  display: block;
+  min-width: 0;
+  padding: 22px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  transition:
+    border-color var(--transition-fast),
+    background var(--transition-fast);
+}
+.admin-dashboard-link:hover {
+  border-color: var(--border-color-light);
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+}
+.admin-dashboard-link-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 9px;
+}
+.admin-dashboard-link-heading h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.admin-dashboard-link-heading > span {
+  color: var(--brand-cyan);
+  font-size: 18px;
+  line-height: 1;
+}
+.admin-dashboard-link p {
+  margin: 0;
+}
+@media (max-width: 1050px) {
+  .admin-dashboard-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 750px) {
+  .admin-dashboard-libraries,
+  .admin-dashboard-tools {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 520px) {
+  .admin-dashboard-stats {
+    gap: 10px;
+    margin-bottom: 26px;
+  }
+  .admin-dashboard-stat,
+  .admin-dashboard-link {
+    padding: 17px;
+  }
+  .admin-dashboard-stat dd {
+    font-size: 28px;
+  }
+}

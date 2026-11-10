@@ -34,24 +34,7 @@ function SolveRoute() {
 
 function SiteFooter() {
   return (
-    <footer
-      style={{
-        position: 'fixed',
-        left: 0,
-        right: 0,
-        bottom: 0,
-        height: 30,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 10,
-        fontSize: 11,
-        color: 'var(--text-muted)',
-        background: 'var(--bg-secondary)',
-        borderTop: '1px solid var(--border-color)',
-        zIndex: 100,
-      }}
-    >
+    <footer className="site-footer">
       <a
         href="https://beian.miit.gov.cn"
         target="_blank"
@@ -82,10 +65,13 @@ function SiteFooter() {
 function AppLayout() {
   return (
     <div className="app-layout">
+      <a className="skip-to-content" href="#main-content">
+        跳转到主要内容
+      </a>
       <Topbar />
       <div className="app-body">
         <Sidebar />
-        <main className="main-content">
+        <main className="main-content" id="main-content" tabIndex={-1}>
           <Outlet />
         </main>
       </div>

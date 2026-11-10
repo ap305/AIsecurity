@@ -34,46 +34,20 @@ export default function Sidebar() {
             ? pathname === '/admin'
             : pathname.startsWith(path)
       return (
-        <Link
-          key={path}
-          to={path}
-          aria-current={active ? 'page' : undefined}
-          style={{
-            display: 'block',
-            padding: '11px 14px',
-            marginBottom: 4,
-            borderRadius: 6,
-            fontSize: 13,
-            color: active ? 'var(--brand-cyan)' : 'var(--text-secondary)',
-            background: active ? 'var(--brand-cyan-dim)' : 'transparent',
-          }}
-        >
+        <Link key={path} to={path} aria-current={active ? 'page' : undefined} className="sidebar-link">
           {label}
         </Link>
       )
     })
   return (
-    <aside
-      className="app-sidebar"
-      style={{
-        position: 'fixed',
-        top: 'var(--topbar-height)',
-        left: 0,
-        width: 'var(--sidebar-width)',
-        bottom: 30,
-        background: 'var(--bg-secondary)',
-        borderRight: '1px solid var(--border-color)',
-        padding: 14,
-        overflowY: 'auto',
-        zIndex: 50,
-      }}
-    >
-      <nav aria-label="主要功能">{items(MAIN)}</nav>
+    <aside className="app-sidebar">
+      <nav aria-label="主要功能">
+        <div className="prd-muted sidebar-caption">题库与账户</div>
+        {items(MAIN)}
+      </nav>
       {isAdmin && (
-        <nav aria-label="管理员功能" style={{ marginTop: 24 }}>
-          <div className="prd-muted" style={{ padding: '0 14px 10px' }}>
-            管理
-          </div>
+        <nav aria-label="管理员功能" className="sidebar-admin">
+          <div className="prd-muted sidebar-caption">平台管理</div>
           {items(ADMIN)}
         </nav>
       )}

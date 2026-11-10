@@ -1,13 +1,18 @@
 .prd-page {
+  width: 100%;
+  min-width: 0;
   max-width: 1500px;
   margin: 0 auto;
 }
 .prd-page h1 {
-  font-size: 25px;
+  font-size: 27px;
+  line-height: 1.4;
+  letter-spacing: -0.02em;
   margin-bottom: 8px;
 }
 .prd-page h2 {
-  font-size: 17px;
+  font-size: 18px;
+  line-height: 1.5;
   margin-bottom: 14px;
 }
 .prd-page p {
@@ -22,53 +27,76 @@
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-  margin: 18px 0;
+  margin: 20px 0;
 }
 .prd-panel {
+  min-width: 0;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 10px;
-  padding: 20px;
-  margin-bottom: 18px;
+  border-radius: 12px;
+  padding: 22px;
+  margin-bottom: 20px;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.08);
 }
 .prd-table-wrap {
+  min-width: 0;
   overflow-x: auto;
+  border-radius: 8px;
 }
 .prd-table {
   width: 100%;
   border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
 }
 .prd-table th,
 .prd-table td {
-  padding: 15px 14px;
+  padding: 16px;
   border-bottom: 1px solid var(--border-color);
   text-align: left;
+  vertical-align: middle;
   font-size: 13px;
+  line-height: 1.65;
 }
 .prd-table th {
   color: var(--text-secondary);
-  font-weight: 500;
+  background: var(--bg-secondary);
+  font-weight: 600;
   white-space: nowrap;
 }
 .prd-table tbody tr:last-child td {
   border-bottom: 0;
 }
 .prd-table tbody tr:hover {
-  background: var(--brand-cyan-dim);
+  background: var(--bg-card-hover);
 }
 .prd-table a {
   color: var(--brand-cyan);
   font-weight: 600;
 }
 .prd-button {
+  min-height: 36px;
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 8px 13px;
   background: var(--bg-secondary);
   color: var(--text-primary);
   cursor: pointer;
   font: inherit;
   font-size: 13px;
+  font-weight: 500;
+  line-height: 1.45;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
+}
+.prd-button:hover:not(:disabled) {
+  background: var(--bg-card-hover);
+  border-color: var(--border-color-light);
+}
+.prd-button:focus-visible {
+  outline: 2px solid var(--brand-cyan);
+  outline-offset: 3px;
 }
 .prd-button.primary {
   background: var(--brand-cyan);
@@ -76,29 +104,53 @@
   color: #07111c;
   font-weight: 600;
 }
+.prd-button.primary:hover:not(:disabled) {
+  background: var(--brand-cyan);
+  border-color: var(--brand-cyan);
+  box-shadow: 0 0 0 3px var(--brand-cyan-dim);
+}
 .prd-button.danger {
   color: var(--danger);
 }
+.prd-button.danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: rgba(255, 107, 107, 0.08);
+}
 .prd-button:disabled {
   cursor: not-allowed;
-  opacity: 0.5;
+  opacity: 0.55;
 }
 .prd-input {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--bg-secondary);
   color: var(--text-primary);
   padding: 10px 12px;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 1.5;
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+.prd-input::placeholder {
+  color: var(--text-muted);
+}
+.prd-input:hover:not(:disabled):not(:focus) {
+  border-color: var(--border-color-light);
 }
 .prd-toolbar .prd-input {
   width: auto;
   min-width: 180px;
 }
 .prd-input:focus {
+  border-color: var(--brand-cyan);
   outline: 1px solid var(--brand-cyan);
+  outline-offset: 0;
+  box-shadow: 0 0 0 3px var(--brand-cyan-dim);
 }
 .prd-label {
   display: flex;
@@ -110,7 +162,7 @@
 .prd-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 15px;
+  gap: 18px;
 }
 .prd-grid .full {
   grid-column: 1 / -1;
@@ -123,8 +175,8 @@
 }
 .prd-error,
 .prd-notice {
-  padding: 13px 16px;
-  border-radius: 6px;
+  padding: 14px 16px;
+  border-radius: 10px;
   margin: 12px 0;
   line-height: 1.7;
   font-size: 13px;
@@ -142,8 +194,8 @@
 .prd-badge {
   display: inline-block;
   border: 1px solid var(--border-color);
-  border-radius: 4px;
-  padding: 3px 7px;
+  border-radius: 6px;
+  padding: 3px 8px;
   font-size: 11px;
   color: var(--text-secondary);
   margin-right: 6px;
@@ -205,6 +257,7 @@
   font-size: 28px;
   color: var(--brand-cyan);
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 .prd-secret {
   width: 100%;
@@ -218,6 +271,10 @@
   cursor: pointer;
   color: var(--text-secondary);
   font-size: 13px;
+  line-height: 1.7;
+}
+.prd-panel summary:hover {
+  color: var(--text-primary);
 }
 .prd-panel pre {
   white-space: pre-wrap;
@@ -226,7 +283,7 @@
   line-height: 1.7;
 }
 .prd-loading {
-  padding: 50px 20px;
+  padding: 56px 20px;
   color: var(--text-secondary);
   text-align: center;
 }
@@ -252,32 +309,14 @@
     grid-template-columns: 1fr;
   }
   .prd-panel {
-    padding: 14px;
+    padding: 16px;
   }
   .prd-page h1 {
     font-size: 21px;
   }
   .prd-toolbar .prd-input {
     width: 100%;
-  }
-}
-@media (max-width: 850px) {
-  .app-layout > header > nav {
-    display: none;
-  }
-}
-@media (max-width: 600px) {
-  :root {
-    --sidebar-width: 135px;
-  }
-  .app-layout > header {
-    padding: 0 12px !important;
-  }
-  .app-layout > header > div:last-child > span {
-    display: none;
-  }
-  .main-content {
-    padding: 16px;
+    min-width: 0;
   }
 }
 button,
@@ -332,7 +371,7 @@ textarea:focus-visible {
   .app-body {
     display: block;
   }
-  .main-content:has(> .solve-workbench) {
+  .app-body .main-content:has(> .solve-workbench) {
     height: calc(100dvh - var(--topbar-height) - 56px);
   }
   .app-body:has(.app-sidebar nav[aria-label='管理员功能']) .main-content:has(> .solve-workbench) {

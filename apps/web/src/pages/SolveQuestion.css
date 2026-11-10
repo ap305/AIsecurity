@@ -2,7 +2,7 @@
   height: calc(100vh - var(--topbar-height));
   height: calc(100dvh - var(--topbar-height));
   min-height: 0;
-  padding: 12px 16px 42px;
+  padding: 12px 16px calc(var(--footer-height, 32px) + 12px);
   overflow: hidden;
 }
 .solve-workbench {
@@ -46,18 +46,19 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+  color: var(--text-primary);
 }
 .solve-question-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 3px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
 }
 .solve-actions {
   flex-shrink: 0;
-  gap: 6px;
+  gap: 8px;
 }
 .solve-actions .prd-button {
   white-space: nowrap;
@@ -67,6 +68,8 @@
   min-height: 28px;
   color: var(--text-secondary);
   font-size: 12px;
+  border-top: 1px solid var(--border-color);
+  padding-top: 5px;
 }
 .solve-stages {
   display: flex;
@@ -90,6 +93,10 @@
 .solve-live-status {
   margin-left: auto;
   white-space: nowrap;
+  padding: 4px 9px;
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text-primary);
 }
 .solve-evaluation-note {
   font-size: 11px;
@@ -126,7 +133,7 @@
   overflow: auto;
   padding: 14px;
   border: 1px solid var(--border-color-light);
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--bg-card);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
@@ -164,7 +171,8 @@
   overflow: hidden;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
 }
 .solve-tabs {
   display: flex;
@@ -184,13 +192,18 @@
   color: var(--text-secondary);
   background: transparent;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
   white-space: nowrap;
 }
 .solve-tabs button[aria-selected='true'] {
   color: var(--brand-cyan);
   border-bottom-color: var(--brand-cyan);
+  background: var(--brand-cyan-dim);
+  font-weight: 600;
+}
+.solve-tabs button:hover {
+  color: var(--text-primary);
 }
 .solve-tabs button:focus-visible,
 .solve-workbench button:focus-visible {
@@ -205,7 +218,7 @@
   overscroll-behavior: contain;
 }
 .solve-pane-scroll .prd-markdown {
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.8;
 }
 .solve-pane-scroll .prd-markdown > :first-child {
@@ -223,17 +236,18 @@
   gap: 6px;
 }
 .solve-editor-actions .prd-button {
+  min-height: 28px;
   padding: 3px 8px;
-  font-size: 11px;
+  font-size: 12px;
 }
 .solve-language {
   margin-left: 10px;
   color: var(--text-secondary);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
 }
 .solve-save-status {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--text-secondary);
 }
 .solve-code-hint {
@@ -242,7 +256,7 @@
   padding: 5px 12px;
   background: var(--brand-cyan-dim);
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
 }
 .solve-editor-body {
   flex: 1;
@@ -293,7 +307,7 @@
   overflow: auto;
   padding: 14px;
   overscroll-behavior: contain;
-  font-size: 12px;
+  font-size: 13px;
 }
 .solve-result-content p {
   margin-bottom: 8px;
@@ -301,6 +315,7 @@
 }
 .solve-result-content .prd-score {
   font-size: 24px;
+  font-variant-numeric: tabular-nums;
 }
 .solve-result-summary {
   justify-content: flex-start;
@@ -314,18 +329,19 @@
   margin: 12px 0;
 }
 .solve-metrics > div {
-  padding: 8px 10px;
+  padding: 10px 12px;
   border: 1px solid var(--border-color);
-  border-radius: 5px;
+  border-radius: 8px;
+  background: var(--bg-secondary);
   min-width: 0;
 }
 .solve-metrics dt {
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
   overflow-wrap: anywhere;
 }
 .solve-metrics dd {
-  margin: 2px 0 0;
+  margin: 5px 0 0;
   font-family: var(--font-mono);
   overflow-wrap: anywhere;
 }
@@ -338,12 +354,12 @@
 }
 .solve-pairs-table th,
 .solve-pairs-table td {
-  padding: 7px 8px;
-  font-size: 11px;
+  padding: 9px 10px;
+  font-size: 12px;
 }
 .solve-submission-id {
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: 12px;
   overflow-wrap: anywhere;
 }
 .solve-frozen-code {
@@ -380,7 +396,7 @@
   padding: 12px;
   text-align: left;
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: 9px;
   color: var(--text-primary);
   background: var(--bg-secondary);
   font: inherit;
@@ -401,7 +417,8 @@
 }
 .solve-history-id {
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 .solve-empty {
   padding: 18px 4px;
@@ -411,7 +428,7 @@
 }
 .solve-empty p {
   margin-top: 10px;
-  font-size: 11px;
+  font-size: 12px;
 }
 .arena-teaching {
   margin-bottom: 22px;
@@ -540,7 +557,7 @@
 }
 @media (max-width: 900px) {
   .main-content:has(> .solve-workbench) {
-    padding: 10px 10px 40px;
+    padding: 10px 10px calc(var(--footer-height, 32px) + 10px);
   }
   .solve-panes {
     grid-template-columns: minmax(0, 1fr);
@@ -550,6 +567,7 @@
     gap: 4px;
   }
   .solve-mobile-switch .prd-button {
+    min-height: 28px;
     padding: 3px 7px;
     font-size: 11px;
   }
@@ -605,7 +623,7 @@
     display: none;
   }
 }
-@media (max-height: 520px) {
+@media (max-height: 520px), (max-width: 600px) and (max-height: 650px) {
   .main-content:has(> .solve-workbench) {
     overflow-y: auto;
   }
