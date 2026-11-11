@@ -100,7 +100,7 @@ export async function startTeacherLease(
     return { row, check: true }
   })
   if (!prepared.check) return leaseView(prepared.row)
-  const ready = await poolHealthy(snapshot.teacherBinding)
+  const ready = await poolHealthy(snapshot.teacherBinding, { source: 'teacher', kind: 'health', actorId: userId, questionId })
   const started = new Date()
   const row = await transaction(async (tx) => {
     const freshQuestion = await tx.question.findUnique({ where: { id: questionId } })
@@ -167,7 +167,7 @@ export async function recoverTeacherLeases(): Promise<void> {
 export async function consumeTeacherCall(
   token: Record<string, any>,
   now = new Date(),
-): Promise<{ binding: PoolBinding; leaseId: string }> {
+): Promise<{ binding: PoolBinding; leaseId: string; userId: string; questionId: string }> {
   return transaction(async (tx) => {
     const lease = await tx.teacherLease.findUnique({ where: { id: token.leaseId } })
     if (!lease || lease.nonce !== token.nonce || lease.userId !== token.uid)
@@ -184,6 +184,6 @@ export async function consumeTeacherCall(
     if (leaseState(lease, now) !== 'active') throw new RequestError('租约已到期或撤销，请检查租约状态', 403)
     if (lease.calls >= lease.maxCalls) throw new RequestError('教师查询额度已耗尽', 429)
     await tx.teacherLease.update({ where: { id: lease.id }, data: { calls: { increment: 1 } } })
-    return { binding: parseJson<PoolBinding>(lease.poolSnapshot, {} as PoolBinding), leaseId: lease.id }
+    return { binding: parseJson<PoolBinding>(lease.poolSnapshot, {} as PoolBinding), leaseId: lease.id, userId: lease.userId, questionId: lease.questionId }
   })
 }

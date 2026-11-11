@@ -13,11 +13,13 @@ const blank = (): ApiPoolItem => ({
   isDefault: false,
   revision: 1,
 })
-function containsCredential(value: unknown): boolean {
+export function containsCredential(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false
   return Object.entries(value).some(
     ([key, child]) =>
-      /api.?key|secret|^(token|authorization|password)$/i.test(key) || containsCredential(child),
+      (/api.?key|secret|^(token|authorization|password)$/i.test(key) &&
+        (child === null || typeof child !== 'object')) ||
+      containsCredential(child),
   )
 }
 export default function ApiPoolManager() {

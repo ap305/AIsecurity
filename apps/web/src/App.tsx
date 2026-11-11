@@ -18,6 +18,7 @@ import QuestionReview from './pages/admin/QuestionReview'
 import UserManager from './pages/admin/UserManager'
 import StudentScores from './pages/admin/StudentScores'
 import ApiPoolManager from './pages/admin/ApiPoolManager'
+import ModelUsage from './pages/admin/ModelUsage'
 import TeacherLeaseManager from './pages/admin/TeacherLeaseManager'
 import AdminOperations from './pages/admin/AdminOperations'
 import GithubArchiveConfig from './pages/admin/GithubArchiveConfig'
@@ -113,6 +114,7 @@ export default function App() {
               <Route path="/admin/student-scores" element={<StudentScores />} />
               <Route path="/admin/llm" element={<Navigate to="/admin/api-pool" replace />} />
               <Route path="/admin/api-pool" element={<ApiPoolManager />} />
+              <Route path="/admin/model-usage" element={<ModelUsage />} />
               <Route path="/admin/teacher-leases" element={<TeacherLeaseManager />} />
               <Route path="/admin/operations" element={<AdminOperations />} />
               <Route path="/admin/github" element={<GithubArchiveConfig />} />

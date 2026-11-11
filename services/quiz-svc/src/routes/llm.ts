@@ -1,4 +1,7 @@
-import { requireAdminMw } from '../lib/auth.js'
+import { requireAdminMw, requireUser, authPayload } from '../lib/auth.js'
+import crypto from 'node:crypto'
+import { startModelUsage, finishModelUsage } from '../services/modelUsage.js'
+import { modelUsageTokens } from '../lib/modelUsageTokens.js'
 import { Router, type Request, type Response } from 'express'
 import {
   getGatewayConfig,
@@ -34,6 +37,7 @@ import {
  */
 
 const router = Router()
+router.use(['/v1', '/llm'], (_req, res, next) => { res.setHeader('Cache-Control', 'private, no-store'); next() })
 // Legacy unscoped gateway is administrator-only. Judged student code uses the
 // immutable submission-scoped gateway, never this mutable/global model endpoint.
 router.use('/v1', requireAdminMw)
@@ -55,16 +59,27 @@ function isAdminReq(req: Request): boolean {
 }
 
 // ── GET /api/v1/models ───────────────────────────────────────────────────────
-router.get('/v1/models', async (_req: Request, res: Response) => {
+router.get('/v1/models', async (req: Request, res: Response) => {
   if (effectiveBaseUrl()) {
+    const id = await startModelUsage({ source: 'legacy', kind: 'health', actorId: authPayload(req)!.uid, model: effectiveModel() })
+    const started = Date.now()
     try {
       const upstream = await fetch(`${effectiveBaseUrl()}/models`, {
         headers: effectiveApiKey() ? { Authorization: `Bearer ${effectiveApiKey()}` } : {},
+        signal: AbortSignal.timeout(10000),
       })
+      if (!upstream.ok) {
+        await upstream.body?.cancel().catch(() => {})
+        await finishModelUsage(id, { outcome: 'http_error', httpStatus: upstream.status, elapsedMs: Date.now() - started })
+        res.status(upstream.status).json({ error: { message: `模型服务返回 HTTP ${upstream.status}` } })
+        return
+      }
       const text = await upstream.text()
+      await finishModelUsage(id, { outcome: 'success', httpStatus: upstream.status, elapsedMs: Date.now() - started })
       res.status(upstream.status).type('json').send(text)
       return
     } catch (e) {
+      await finishModelUsage(id, { outcome: failureKind(e), elapsedMs: Date.now() - started })
       // 上游不可达时回退 mock 列表
     }
   }
@@ -149,6 +164,8 @@ router.post('/v1/chat/completions', async (req: Request, res: Response) => {
 
   // ── 转发到真实推理服务 ──
   if (effectiveBaseUrl()) {
+    const usageId = await startModelUsage({ source: 'legacy', kind: 'llm', actorId: authPayload(req)!.uid, model: String(payload.model) })
+    const started = Date.now()
     try {
       const upstream = await fetch(`${effectiveBaseUrl()}/chat/completions`, {
         method: 'POST',
@@ -157,11 +174,18 @@ router.post('/v1/chat/completions', async (req: Request, res: Response) => {
           ...(effectiveApiKey() ? { Authorization: `Bearer ${effectiveApiKey()}` } : {}),
         },
         body: JSON.stringify({ ...payload, stream }),
+        signal: AbortSignal.timeout(300000),
       })
+      if (!upstream.ok) {
+        await upstream.body?.cancel().catch(() => {})
+        await finishModelUsage(usageId, { outcome: 'http_error', httpStatus: upstream.status, elapsedMs: Date.now() - started })
+        res.status(upstream.status).json({ error: { message: `模型服务返回 HTTP ${upstream.status}` } })
+        return
+      }
       if (stream) {
         // 透传 SSE 流
         res.setHeader('Content-Type', 'text/event-stream')
-        res.setHeader('Cache-Control', 'no-cache')
+        res.setHeader('Cache-Control', 'private, no-store')
         res.setHeader('Connection', 'keep-alive')
         if (upstream.body) {
           const reader = upstream.body.getReader()
@@ -173,24 +197,25 @@ router.post('/v1/chat/completions', async (req: Request, res: Response) => {
               if (done) break
               res.write(decoder.decode(value))
             }
+            // Legacy streams do not require usage chunks; unknown tokens remain explicit.
+            await finishModelUsage(usageId, { outcome: 'success', httpStatus: upstream.status, elapsedMs: Date.now() - started })
             res.end()
           }
-          pump().catch(() => res.end())
+          pump().catch(async error => { await finishModelUsage(usageId, { outcome: failureKind(error), elapsedMs: Date.now() - started }); res.end() })
           return
         }
+        await finishModelUsage(usageId, { outcome: 'success', httpStatus: upstream.status, elapsedMs: Date.now() - started })
         res.status(upstream.status).send('')
         return
       }
       const text = await upstream.text()
-      if (!upstream.ok) {
-        // 记录上游报错（含实际请求的模型名），便于定位“模型不存在”一类问题
-        console.warn(
-          `[llm] 上游错误 ${upstream.status} model=${String(payload.model)} :: ${text.slice(0, 300)}`,
-        )
-      }
+      let parsed: unknown
+      try { parsed = JSON.parse(text) } catch { /* Retain compatibility, mark non-JSON telemetry explicitly. */ }
+      await finishModelUsage(usageId, { outcome: parsed === undefined ? 'invalid_json' : 'success', httpStatus: upstream.status, elapsedMs: Date.now() - started, ...modelUsageTokens(parsed) })
       res.status(upstream.status).type('json').send(text)
       return
     } catch (e) {
+      await finishModelUsage(usageId, { outcome: failureKind(e), elapsedMs: Date.now() - started })
       // 上游不可达 -> 回退 mock（非流式）
     }
   }
@@ -199,7 +224,7 @@ router.post('/v1/chat/completions', async (req: Request, res: Response) => {
   if (stream) {
     const mock = mockChatCompletion(payload)
     res.setHeader('Content-Type', 'text/event-stream')
-    res.setHeader('Cache-Control', 'no-cache')
+    res.setHeader('Cache-Control', 'private, no-store')
     res.setHeader('Connection', 'keep-alive')
     res.write(
       `data: ${JSON.stringify({ id: mock.id, object: 'chat.completion.chunk', created: mock.created, model: mock.model, choices: [{ index: 0, delta: { role: 'assistant', content: mock.choices[0].message.content }, finish_reason: null }] })}\n\n`,
@@ -218,159 +243,92 @@ router.post('/v1/chat/completions', async (req: Request, res: Response) => {
 // 用途：前端「LLM 连接测试」配置界面，验证调用大模型的 base_url + api_key 是否可用。
 // 行为：GET {baseUrl}/models 取模型列表（失败可容忍）→ POST {baseUrl}/chat/completions
 //       发最小消息 'ping' 验证生成链路，返回结构化结果。
+function failureKind(error: unknown): 'timeout' | 'transport' {
+  return error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name) ? 'timeout' : 'transport'
+}
+
 router.post('/llm/test-connection', async (req: Request, res: Response) => {
   const { baseUrl, apiKey, model } = req.body ?? {}
-  if (!baseUrl || typeof baseUrl !== 'string' || !baseUrl.trim()) {
-    res.status(400).json({ code: 40001, message: 'baseUrl（API 接口地址）必填', data: null })
+  let base: string
+  try {
+    const url = new URL(typeof baseUrl === 'string' ? baseUrl.trim() : '')
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error()
+    base = url.toString().replace(/\/+$/, '')
+  } catch {
+    res.status(400).json({ code: 40001, message: '请输入不含凭证或查询参数的 HTTP(S) 接口地址', data: null })
     return
   }
-  const base = baseUrl.trim().replace(/\/+$/, '')
-  const authHeaders: Record<string, string> = apiKey
-    ? { Authorization: `Bearer ${String(apiKey).trim()}` }
-    : {}
-  const t0 = Date.now()
-
+  const authHeaders: Record<string, string> = apiKey ? { Authorization: `Bearer ${String(apiKey).trim()}` } : {}
+  const modelName = typeof model === 'string' && model.trim() ? model.trim() : 'competition-model'
+  const actorId = authPayload(req)!.uid
+  const started = Date.now()
+  let models: string[] = []
+  const healthId = await startModelUsage({ source: 'admin_test', kind: 'health', actorId, model: modelName })
   try {
-    // 1) GET /models（失败可容忍，仅收集模型列表）
-    let models: string[] = []
-    try {
-      const mres = await fetch(`${base}/models`, {
-        headers: { ...authHeaders },
-        signal: AbortSignal.timeout(10000),
-      })
-      if (mres.ok) {
-        const mjson = (await mres.json()) as { data?: Array<{ id: string }> }
-        models = (mjson.data ?? [])
-          .map((m) => m.id)
-          .filter(Boolean)
-          .slice(0, 20)
-      }
-    } catch {
-      /* models 端点缺失（如部分代理）时忽略 */
-    }
-
-    // 2) POST /chat/completions 最小生成测试
-    const cres = await fetch(`${base}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders },
-      body: JSON.stringify({
-        model: (model && String(model).trim()) || 'competition-model',
-        messages: [{ role: 'user', content: 'ping' }],
-        max_tokens: 16,
-      }),
+    const mres = await fetch(`${base}/models`, { headers: authHeaders, signal: AbortSignal.timeout(10000) })
+    if (mres.ok) {
+      const body: any = await mres.json()
+      models = Array.isArray(body?.data) ? body.data.map((m: any) => m?.id).filter((id: unknown) => typeof id === 'string').slice(0, 20) : []
+    } else await mres.body?.cancel().catch(() => {})
+    await finishModelUsage(healthId, { outcome: mres.ok ? 'success' : 'http_error', httpStatus: mres.status, elapsedMs: Date.now() - started })
+  } catch (error) {
+    await finishModelUsage(healthId, { outcome: error instanceof SyntaxError ? 'invalid_json' : failureKind(error), elapsedMs: Date.now() - started })
+  }
+  const usageId = await startModelUsage({ source: 'admin_test', kind: 'llm', actorId, model: modelName })
+  const chatStarted = Date.now()
+  try {
+    const response = await fetch(`${base}/chat/completions`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify({ model: modelName, messages: [{ role: 'user', content: 'ping' }], max_tokens: 16 }),
       signal: AbortSignal.timeout(20000),
     })
-    const text = await cres.text()
-    if (!cres.ok) {
-      res.json({
-        code: 0,
-        message: 'ok',
-        data: {
-          ok: false,
-          step: 'chat',
-          status: cres.status,
-          error: text.slice(0, 400) || `HTTP ${cres.status}`,
-          models,
-          latencyMs: Date.now() - t0,
-        },
-      })
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => {})
+      await finishModelUsage(usageId, { outcome: 'http_error', httpStatus: response.status, elapsedMs: Date.now() - chatStarted })
+      res.json({ code: 0, message: 'ok', data: { ok: false, step: 'chat', status: response.status, error: `模型服务返回 HTTP ${response.status}`, models, latencyMs: Date.now() - started } })
       return
     }
-    let reply = ''
-    try {
-      const cjson = JSON.parse(text) as { choices?: Array<{ message?: { content?: string } }> }
-      reply = cjson?.choices?.[0]?.message?.content ?? '(响应无 content 字段)'
-    } catch {
-      reply = text.slice(0, 200)
-    }
-    res.json({
-      code: 0,
-      message: 'ok',
-      data: {
-        ok: true,
-        models,
-        reply,
-        latencyMs: Date.now() - t0,
-      },
-    })
-  } catch (err) {
-    res.json({
-      code: 0,
-      message: 'ok',
-      data: {
-        ok: false,
-        step: 'connect',
-        error: err instanceof Error ? err.message : String(err),
-        models: [],
-        latencyMs: Date.now() - t0,
-      },
-    })
+    const output: any = await response.json()
+    await finishModelUsage(usageId, { outcome: 'success', httpStatus: response.status, elapsedMs: Date.now() - chatStarted, ...modelUsageTokens(output) })
+    const content = output?.choices?.[0]?.message?.content
+    res.json({ code: 0, message: 'ok', data: { ok: true, models, reply: typeof content === 'string' ? content : '(响应无 content 字段)', latencyMs: Date.now() - started } })
+  } catch (error) {
+    const outcome = error instanceof SyntaxError ? 'invalid_json' : failureKind(error)
+    await finishModelUsage(usageId, { outcome, elapsedMs: Date.now() - chatStarted })
+    res.json({ code: 0, message: 'ok', data: { ok: false, step: 'connect', error: outcome === 'timeout' ? '模型服务请求超时' : '模型服务连接或响应异常', models, latencyMs: Date.now() - started } })
   }
 })
 
-// ── GET /api/llm/health ─ 网关健康检查（所有登录用户可调用，供前端「测试网关」按钮）─
-// 返回当前网关模式（proxy/mock）与连通性；代理模式下实际请求 /models 验证。
-router.get('/llm/health', async (_req: Request, res: Response) => {
-  const base = effectiveBaseUrl()
-  const enabled = !!base && getGatewayConfig().enabled !== false
-  const t0 = Date.now()
-  if (!enabled) {
-    res.json({
-      code: 0,
-      message: 'ok',
-      data: {
-        enabled: false,
-        mode: 'mock',
-        ok: true,
-        modelName: effectiveModel(),
-        latencyMs: 0,
-        note: '网关未配置，当前运行在 mock 模式（确定性回显，赛题可正常开发）',
-      },
-    })
+// One bounded, shared health probe per configuration every 30 seconds. Never cache credentials or provider bodies.
+let healthCache: { key: string; expiresAt: number; result: Promise<Record<string, unknown>> } | undefined
+router.get('/llm/health', async (req: Request, res: Response) => {
+  const user = await requireUser(req, res)
+  if (!user) return
+  const base = effectiveBaseUrl(), key = effectiveApiKey(), model = effectiveModel()
+  if (!base) {
+    res.json({ code: 0, message: 'ok', data: { enabled: false, mode: 'mock', ok: true, modelName: model, latencyMs: 0, note: '网关未配置，当前运行在 mock 模式（确定性回显，赛题可正常开发）' } })
     return
   }
-  try {
-    const mres = await fetch(`${base}/models`, {
-      headers: effectiveApiKey() ? { Authorization: `Bearer ${effectiveApiKey()}` } : {},
-      signal: AbortSignal.timeout(8000),
-    })
-    const latencyMs = Date.now() - t0
-    if (mres.ok) {
-      res.json({
-        code: 0,
-        message: 'ok',
-        data: { enabled: true, mode: 'proxy', ok: true, modelName: effectiveModel(), latencyMs },
-      })
-      return
-    }
-    const text = await mres.text().catch(() => '')
-    res.json({
-      code: 0,
-      message: 'ok',
-      data: {
-        enabled: true,
-        mode: 'proxy',
-        ok: false,
-        modelName: effectiveModel(),
-        latencyMs,
-        status: mres.status,
-        error: text.slice(0, 300) || `HTTP ${mres.status}`,
-      },
-    })
-  } catch (err) {
-    res.json({
-      code: 0,
-      message: 'ok',
-      data: {
-        enabled: true,
-        mode: 'proxy',
-        ok: false,
-        modelName: effectiveModel(),
-        latencyMs: Date.now() - t0,
-        error: err instanceof Error ? err.message : String(err),
-      },
-    })
+  const cacheKey = crypto.createHash('sha256').update(JSON.stringify([base, key, model])).digest('hex')
+  if (!healthCache || healthCache.key !== cacheKey || healthCache.expiresAt <= Date.now()) {
+    const result = (async (): Promise<Record<string, unknown>> => {
+      const usageId = await startModelUsage({ source: 'health', kind: 'health', actorId: user.id, model })
+      const started = Date.now()
+      const common = { enabled: true, mode: 'proxy', modelName: model }
+      try {
+        const response = await fetch(`${base}/models`, { headers: key ? { Authorization: `Bearer ${key}` } : {}, signal: AbortSignal.timeout(8000) })
+        await response.body?.cancel().catch(() => {})
+        await finishModelUsage(usageId, { outcome: response.ok ? 'success' : 'http_error', httpStatus: response.status, elapsedMs: Date.now() - started })
+        return { ...common, ok: response.ok, latencyMs: Date.now() - started, ...(response.ok ? {} : { status: response.status, error: `模型服务返回 HTTP ${response.status}` }) }
+      } catch (error) {
+        const outcome = failureKind(error)
+        await finishModelUsage(usageId, { outcome, elapsedMs: Date.now() - started })
+        return { ...common, ok: false, latencyMs: Date.now() - started, error: outcome === 'timeout' ? '模型服务请求超时' : '模型服务暂不可用' }
+      }
+    })()
+    healthCache = { key: cacheKey, expiresAt: Date.now() + 30000, result }
   }
+  res.json({ code: 0, message: 'ok', data: await healthCache.result })
 })
 
 // ── POST /api/llm/admin/mode ─ 一键切换 mock / LLM 网关模式（仅 admin）────────

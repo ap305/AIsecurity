@@ -9,6 +9,7 @@ import llmRouter from './routes/llm.js'
 import githubArchiveAdminRouter from './routes/githubArchiveAdmin.js'
 import authRouter from './routes/auth.js'
 import apiPoolRouter from './routes/apiPool.js'
+import modelUsageRouter from './routes/modelUsage.js'
 import teacherLeasesRouter from './routes/teacherLeases.js'
 import arenaRouter from './routes/arena.js'
 import evaluationPackagesRouter from './routes/evaluationPackages.js'
@@ -28,6 +29,7 @@ for (const router of [
   arenaRouter,
   evaluationPackagesRouter,
   apiPoolRouter,
+  modelUsageRouter,
   teacherLeasesRouter,
   matchesRouter,
   leaderboardRouter,

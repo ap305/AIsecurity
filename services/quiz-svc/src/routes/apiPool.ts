@@ -87,7 +87,7 @@ router.post('/evaluation-gateway/:id/chat/completions', async (req, res) => {
         detail: JSON.stringify({ poolId: snapshot.modelBinding!.poolId, revision: snapshot.modelBinding!.revision, policy: context!.policy }),
       } })
       res.setHeader('X-Model-Response-Source', source)
-    }))
+    }, { source: 'evaluation', kind: 'llm', actorId: submission.userId, questionId: submission.questionId, submissionId: submission.id }))
   } catch (e) {
     fail(res, e)
   }

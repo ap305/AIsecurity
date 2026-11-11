@@ -3,7 +3,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { Router } from 'express'
 import multer from 'multer'
-import { bearerToken, readScopedToken, requireAdminMw, signScopedToken } from '../lib/auth.js'
+import { bearerToken, readScopedToken, requireAdminMw, signScopedToken, authPayload } from '../lib/auth.js'
 import { freezePoolBinding, callPoolWithResponseSnapshot } from '../services/apiPool.js'
 import { responseSnapshotContext, type ResponseSnapshotContext } from '../services/modelResponseSnapshot.js'
 import { normalizeCategory, normalizeDefinition, type PoolBinding } from '../lib/prdContract.js'
@@ -37,6 +37,7 @@ export interface PackageSelfTest {
   packageId: string
   packageDigest: string
   createdAt: string
+  actorId?: string
   completedAt?: string
   status: 'queued' | 'running' | 'completed'
   phase: ComposeEvaluationInput['phase']
@@ -73,7 +74,7 @@ async function reserveSelfTestCall(
   digest: string,
   expectedPool: PoolBinding,
   source?: 'upstream' | 'snapshot',
-): Promise<{ binding: PoolBinding; snapshot?: ResponseSnapshotContext }> {
+): Promise<{ binding: PoolBinding; snapshot?: ResponseSnapshotContext; actorId?: string }> {
   const file = testFile(packageId, testId),
     lock = `${file}.lock`
   let owned = false
@@ -110,7 +111,7 @@ async function reserveSelfTestCall(
       record.calls = (record.calls ?? 0) + 1
     }
     saveTest(record)
-    return { binding: record.poolBinding, snapshot: record.responseSnapshot }
+    return { binding: record.poolBinding, snapshot: record.responseSnapshot, actorId: record.actorId }
   } finally {
     fs.rmSync(lock, { force: true })
   }
@@ -248,6 +249,7 @@ router.post('/admin/evaluation-packages/:id/self-tests', async (req, res) => {
       packageDigest: descriptor.digest,
       configurationKey,
       createdAt: new Date().toISOString(),
+      actorId: authPayload(req)!.uid,
       status: 'queued',
       phase: phase as ComposeEvaluationInput['phase'],
       calls: 0,
@@ -383,7 +385,7 @@ router.post('/evaluation-self-test-gateway/:testId/chat/completions', async (req
     res.json(await callPoolWithResponseSnapshot(reserved.binding, req.body, reserved.snapshot, async source => {
       await reserveSelfTestCall(token.packageId as string, token.testId as string, token.packageDigest as string, token.poolBinding as PoolBinding, source)
       res.setHeader('X-Model-Response-Source', source)
-    }))
+    }, { source: 'selftest', kind: 'llm', actorId: reserved.actorId }))
   } catch (error) {
     const status =
       typeof (error as { status?: unknown })?.status === 'number' ? (error as { status: number }).status : 400

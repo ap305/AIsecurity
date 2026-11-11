@@ -5,14 +5,17 @@ import { transaction } from '../lib/transaction.js'
 import crypto from 'node:crypto'
 import {waitForColdRequest} from './modelRequestPacing.js'
 import { withResponseSnapshot, type ResponseSnapshotContext } from './modelResponseSnapshot.js'
+import { startModelUsage, finishModelUsage, recordModelUsageSnapshot, type ModelUsageContext } from './modelUsage.js'
+import { modelUsageTokens } from '../lib/modelUsageTokens.js'
 
 export async function callPoolWithResponseSnapshot(
   binding: PoolBinding,
   input: any,
   context: ResponseSnapshotContext | null | undefined,
   observe: (source: 'upstream' | 'snapshot') => Promise<void>,
+  usage?: ModelUsageContext,
 ) {
-  if (!context) return callPool(binding, input)
+  if (!context) return callPool(binding, input, false, false, undefined, usage)
   const started=Date.now()
   return withResponseSnapshot({
     root: process.env.EVALUATION_RESPONSE_SNAPSHOT_ROOT || '',
@@ -20,7 +23,7 @@ export async function callPoolWithResponseSnapshot(
     beforeCall: () => waitForColdRequest(JSON.stringify([binding.baseUrl,binding.credentialEnv,binding.model]),
       Number(process.env.EVALUATION_SNAPSHOT_UPSTREAM_INTERVAL_MS ?? 0)),
     call: async () => {
-      try { return await callPool(binding, input, false, true, started+80000) }
+      try { return await callPool(binding, input, false, true, started+80000, usage) }
       catch (error) {
         // These four new-policy tasks must not translate an unknown provider
         // outcome into the legacy runtime's retryable 503 response.
@@ -28,7 +31,11 @@ export async function callPoolWithResponseSnapshot(
           throw new RequestError('模型服务调用结果未知，本次不产生正式成绩', 502)
         throw error
       }
-    }, observe,
+    }, observe: async source => {
+      await observe(source)
+      if (source === 'snapshot' && usage)
+        await recordModelUsageSnapshot({ ...usage, poolId: binding.poolId, model: binding.model })
+    },
   })
 }
 
@@ -85,6 +92,17 @@ export async function savePool(id: string | null, body: any, actorId: string) {
     if (!merged.parameters || typeof merged.parameters !== 'object' || Array.isArray(merged.parameters))
       merged.parameters = {}
     const params = merged.parameters
+    // Match the editor's credential restriction at the server trust boundary too.
+    const pending: unknown[] = [params]
+    while (pending.length) {
+      const item = pending.pop()
+      if (!item || typeof item !== 'object') continue
+      for (const [key, value] of Object.entries(item)) {
+        if ((!value || typeof value !== 'object') && /api.?key|secret|^(token|authorization|password)$/i.test(key))
+          throw new RequestError('参数中不能保存凭证，请使用密钥环境变量')
+        if (value && typeof value === 'object') pending.push(value)
+      }
+    }
     poolRequestTimeoutMs(params)
     if (params.maxCalls !== undefined && (!Number.isSafeInteger(params.maxCalls) || params.maxCalls < 1))
       throw new RequestError('模型调用预算必须是正整数')
@@ -119,17 +137,23 @@ export async function savePool(id: string | null, body: any, actorId: string) {
   })
 }
 
-export async function poolHealthy(binding: PoolBinding): Promise<boolean> {
+export async function poolHealthy(binding: PoolBinding, usage?: ModelUsageContext): Promise<boolean> {
   const healthPath = binding.kind === 'llm' ? '/models' : String(binding.parameters.healthPath || '/health')
   if (!healthPath.startsWith('/') || healthPath.startsWith('//')) return false
+  let headers: Record<string, string>
+  try { headers = poolHeaders(binding) } catch { return false }
+  const usageId = usage ? await startModelUsage({ ...usage, poolId: binding.poolId, model: binding.model, kind: 'health' }) : null
+  const started = Date.now()
   try {
     const response = await fetch(`${binding.baseUrl}${healthPath}`, {
-      headers: poolHeaders(binding),
+      headers,
       signal: AbortSignal.timeout(10000),
     })
     await response.body?.cancel()
+    if (usageId) await finishModelUsage(usageId, { outcome: response.ok ? 'success' : 'http_error', httpStatus: response.status, elapsedMs: Date.now() - started })
     return response.ok
-  } catch {
+  } catch (error) {
+    if (usageId) await finishModelUsage(usageId, { outcome: error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name) ? 'timeout' : 'transport', elapsedMs: Date.now() - started })
     return false
   }
 }
@@ -217,14 +241,16 @@ async function logRateLimitDiagnostic(binding: PoolBinding, response: Response) 
     rateDimension, retryAfterSeconds: seconds, numericProviderCode: Number.isSafeInteger(value?.code) ? value.code : null}))
 }
 
-export async function callPool(binding: PoolBinding, body: any, teacher = false, diagnoseRateLimit = false, deadlineMs?: number) {
+export async function callPool(binding: PoolBinding, body: any, teacher = false, diagnoseRateLimit = false, deadlineMs?: number, usage?: ModelUsageContext) {
   const configuredTimeoutMs = poolRequestTimeoutMs(binding.parameters)
-  const timeoutMs = deadlineMs === undefined ? configuredTimeoutMs : Math.min(configuredTimeoutMs, Math.max(1,deadlineMs-Date.now()))
   const suffix = teacher ? String(binding.parameters.queryPath || '/predict') : '/chat/completions'
   if (!suffix.startsWith('/') || suffix.startsWith('//') || suffix.includes('..'))
     throw new RequestError('上游路径配置不合法')
   const headers = poolHeaders(binding)
   const payload = JSON.stringify(teacher ? body : fixedModelPayload(binding, body))
+  const usageId = usage ? await startModelUsage({ ...usage, poolId: binding.poolId, model: binding.model }) : null
+  const started = Date.now()
+  const timeoutMs = deadlineMs === undefined ? configuredTimeoutMs : Math.min(configuredTimeoutMs, Math.max(1, deadlineMs - started))
   const signal = AbortSignal.timeout(timeoutMs)
   let response: Response
   try {
@@ -235,11 +261,14 @@ export async function callPool(binding: PoolBinding, body: any, teacher = false,
       signal,
     })
   } catch (error) {
-    logUpstreamFailure(binding, transportFailureReason(error, signal), null)
+    const reason = transportFailureReason(error, signal)
+    logUpstreamFailure(binding, reason, null)
+    if (usageId) await finishModelUsage(usageId, { outcome: reason, elapsedMs: Date.now() - started })
     throw new RequestError('模型服务暂不可用，本次不产生正式成绩', 503)
   }
   if (!response.ok) {
     logUpstreamFailure(binding, 'http', response.status)
+    if (usageId) await finishModelUsage(usageId, { outcome: 'http_error', httpStatus: response.status, elapsedMs: Date.now() - started })
     if (diagnoseRateLimit && response.status === 429) await logRateLimitDiagnostic(binding, response)
     try {
       await response.body?.cancel()
@@ -249,13 +278,17 @@ export async function callPool(binding: PoolBinding, body: any, teacher = false,
     throw new RequestError('模型服务返回错误，本次不产生正式成绩', 502)
   }
   try {
-    return await response.json()
+    const output = await response.json()
+    if (usageId) await finishModelUsage(usageId, { outcome: 'success', httpStatus: response.status, elapsedMs: Date.now() - started, ...modelUsageTokens(output) })
+    return output
   } catch (error) {
+    const reason = error instanceof SyntaxError ? 'invalid_json' : transportFailureReason(error, signal)
     logUpstreamFailure(
       binding,
-      error instanceof SyntaxError ? 'invalid_json' : transportFailureReason(error, signal),
+      reason,
       response.status,
     )
+    if (usageId) await finishModelUsage(usageId, { outcome: reason, httpStatus: response.status, elapsedMs: Date.now() - started })
     throw new RequestError('模型服务返回错误，本次不产生正式成绩', 502)
   }
 }

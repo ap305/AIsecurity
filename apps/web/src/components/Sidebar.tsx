@@ -17,6 +17,7 @@ const ADMIN = [
   ['/admin/users', '用户管理'],
   ['/admin/student-scores', '学生成绩'],
   ['/admin/api-pool', '平台 API 池'],
+  ['/admin/model-usage', '模型用量与告警'],
   ['/admin/teacher-leases', '临时 API 管理'],
   ['/admin/github', 'GitHub 归档'],
 ]

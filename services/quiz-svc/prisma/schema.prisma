@@ -314,3 +314,64 @@ model ArenaScore {
 
   @@index([questionId, score, achievedAt])
 }
+
+// Observation-only scalar references never lock or cascade into student/score tables.
+model ModelUsageRecord {
+  id String @id @default(uuid())
+  actorId String?
+  questionId String?
+  submissionId String?
+  poolId String?
+  model String?
+  source String
+  kind String
+  outcome String @default("pending")
+  isSnapshot Boolean @default(false)
+  inputTokens Int?
+  outputTokens Int?
+  totalTokens Int?
+  elapsedMs Int?
+  httpStatus Int?
+  traceId String?
+  createdAt DateTime @default(now())
+  finishedAt DateTime?
+
+  @@index([createdAt])
+  @@index([kind, isSnapshot, createdAt])
+  @@index([actorId, kind, isSnapshot, createdAt])
+  @@index([poolId, finishedAt])
+  @@index([source, finishedAt])
+}
+
+model ModelUsagePolicy {
+  id String @id @default("default")
+  mode String @default("observe")
+  revision Int @default(1)
+  globalDaily Int @default(10000)
+  userDaily Int @default(4000)
+  globalTotal Int @default(100000)
+  userTotal Int @default(20000)
+  warnPercent Int @default(80)
+  updatedAt DateTime @updatedAt
+}
+
+model ModelUsageAlert {
+  id String @id @default(uuid())
+  dedupeKey String @unique
+  type String
+  severity String
+  code String
+  scope String
+  scopeId String?
+  period String
+  value Int
+  threshold Int
+  firstSeenAt DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  occurrences Int @default(1)
+  acknowledgedAt DateTime?
+  acknowledgedBy String?
+  acknowledgementHistory String @default("[]")
+
+  @@index([acknowledgedAt, lastSeenAt])
+}
