@@ -20,7 +20,7 @@
 
 ## Component contracts
 
-Backend service `services/quiz-svc/src/services/modelUsage.ts` owns new Prisma models/migration, statistics/policy/alerts helpers. Route `routes/modelUsage.ts` owns GET `/admin/model-usage?days=7`, PUT `/admin/model-usage/policy`, POST `/admin/model-usage/alerts/:id/ack` (requireAdminMw and no-store). Implementer will publish precise TypeScript exports and response DTO before frontend integration.
+Backend service `services/quiz-svc/src/services/modelUsage.ts` owns new Prisma models/migration, statistics/policy/alerts helpers. Route `routes/modelUsage.ts` owns GET `/admin/model-usage?days=7`, PUT `/admin/model-usage/policy`, POST `/admin/model-usage/alerts/:id/ack` (requireAdminMw and no-store). The final TypeScript exports and response DTO are documented in [model-usage-contract.md](model-usage-contract.md).
 
 Root owns instrumentation `services/apiPool.ts`, `routes/apiPool.ts`, `routes/evaluationPackages.ts`, `routes/teacherLeases.ts`, `routes/llm.ts`, `app.ts`. Low-level tracking has start/finish methods; metadata is server-derived. Tracking failures must not replace successful evaluation responses; emit fixed sanitized monitoring-failure logs. New requests in production must all have metadata; tests without a configured tracking context can continue to use callPool directly without DB.
 
@@ -28,13 +28,21 @@ Frontend owns new `pages/admin/ModelUsage.tsx`, a dedicated API/types module and
 
 ## Tasks and verification
 
-- [ ] Backend ledger, policy, aggregation and alerts with failing-first integration tests: concurrent finishes idempotent; token schema; incomplete calls; 80/100% deduplication; acknowledged recurrence; admin isolation; no private payloads; BJT boundary; no legacy-score mutations.
-- [ ] Instrument all production model entry points, including self-tests and administrator legacy/connection test; test success, timeout, HTTP 401/402/429, invalid JSON, snapshot reuse and tracking failure. Health requires valid login, cached checks, bounded sanitized response; no live upstream calls in tests.
-- [ ] Admin page tests and build: correct unknown usage, no currency claims, observe-only editable thresholds, bounded filters and error recovery.
-- [ ] Run full backend/frontend regression, type checks and production build; independent review of privacy, accounting and noninterference.
-- [ ] Backup and restore-test production DB, use additive migrations only, stage isolated cloned environment, use synthetic local provider there for end-to-end request/statistics/alert checks. Do not clone provider secrets into new external destinations.
-- [ ] Deploy through existing guarded API bridge/drain mechanism; allow existing workers to finish; preserve public domain routing and old assets. Verify old grade/submission/question rows via readonly snapshots, public API permissions, queue health and warning-only policy; verify no paid model calls were made by acceptance tests.
-- [ ] Commit verified source in release worktree; synchronize only cleaned source/tests/docs to sanitized GitHub repo. Keep deployment secrets and evidence private.
+- [x] Backend ledger, policy, aggregation and alerts with failing-first integration tests: concurrent finishes idempotent; token schema; incomplete calls; 80/100% deduplication; acknowledged recurrence; admin isolation; no private payloads; BJT boundary; no legacy-score mutations.
+- [x] Instrument all production model entry points, including self-tests and administrator legacy/connection test; test success, timeout, HTTP 401/402/429, invalid JSON, snapshot reuse and tracking failure. Health requires valid login, cached checks, bounded sanitized response; no live upstream calls in tests.
+- [x] Admin page tests and build: correct unknown usage, no currency claims, observe-only editable thresholds, bounded filters and error recovery.
+- [x] Run full backend/frontend regression, type checks and production build; independent review of privacy, accounting and noninterference. Validation distinguishes conditional skips and Windows line-ending fixture recovery from the final Linux stage results.
+- [x] Backup and restore-test production DB, use additive migrations only, stage isolated cloned environment, use synthetic local provider there for end-to-end request/statistics/alert checks. Do not clone provider secrets into new external destinations.
+- [x] Deploy through existing guarded API bridge/drain mechanism; allow existing workers to finish; preserve public domain routing and old assets. Verify old grade/submission/question rows via readonly snapshots, public API permissions, queue health and warning-only policy; verify no paid model calls were made by acceptance tests.
+- [x] Commit verified source in release worktree; synchronize only cleaned source/tests/docs to sanitized GitHub repo. Keep deployment secrets and evidence private.
+
+## Completion evidence
+
+Production deployment completed at 2026-11-11 11:05:38 UTC (19:05:38 Asia/Shanghai), running source `912a2562b27ebe15b6aa0e828210d31ecba826e8`. The sanitized repository contains an independent content-only code commit `0460bb3141152d107917407e70614d3aaa409d3c`; private release history was not merged.
+
+The final Linux stage passed 142/142 tests with no failures or skips. Production verification confirmed a healthy primary API, removed compatibility bridge, no stopped active evaluations, no grade/question writes, preserved existing business rows and old assets, successful administrator access and observe-only policy. See [the validation report](../../validation/2026-11-11-model-usage-security.md) for measured counts, backup/restore evidence and conditional local-test limits.
+
+The provider's existing health check still returns 401, and the corresponding upstream-authentication alert is visible. Restoring valid provider credentials remains an account-owner action; this release did not replace keys or claim to resolve that external authentication failure.
 
 ## Review focus
 
