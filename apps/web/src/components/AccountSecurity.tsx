@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { validateNewPassword } from '../lib/authSession'
+import { authEmailApi, type OwnEmail } from '../lib/authEmail'
 
 export default function AccountSecurity({ onChanged }: { onChanged?: () => void }) {
   const { user, changePassword, logoutOthers } = useAuth()
@@ -11,6 +12,40 @@ export default function AccountSecurity({ onChanged }: { onChanged?: () => void 
   const [busy, setBusy] = useState<'password' | 'sessions' | null>(null)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [mailbox, setMailbox] = useState<OwnEmail | null>(null)
+  const [email, setEmail] = useState(''),
+    [emailPassword, setEmailPassword] = useState('')
+  const [emailBusy, setEmailBusy] = useState(false),
+    [emailError, setEmailError] = useState(''),
+    [emailMessage, setEmailMessage] = useState('')
+  const loadEmail = () => {
+    setEmailError('')
+    void authEmailApi
+      .own()
+      .then(setMailbox)
+      .catch((err) => setEmailError(err.message))
+  }
+  useEffect(() => {
+    if (!user?.mustChangePassword) loadEmail()
+  }, [user?.id, user?.mustChangePassword])
+  const requestBinding = async (event: FormEvent) => {
+    event.preventDefault()
+    if (emailBusy) return
+    setEmailBusy(true)
+    setEmailError('')
+    setEmailMessage('')
+    try {
+      await authEmailApi.request('bind', email, emailPassword)
+      setEmailPassword('')
+      setEmailMessage(
+        '申请已受理。如邮箱可用，系统将尝试发送验证链接。请打开邮件并再次确认密码。验证完成前原邮箱保持有效，成功后需重新登录。',
+      )
+    } catch (err) {
+      setEmailError(err instanceof Error ? err.message : '申请失败，请重试')
+    } finally {
+      setEmailBusy(false)
+    }
+  }
   const change = async (event: FormEvent) => {
     event.preventDefault()
     if (busy) return
@@ -60,6 +95,56 @@ export default function AccountSecurity({ onChanged }: { onChanged?: () => void 
   return (
     <section className="prd-panel" style={{ marginTop: 20 }} aria-labelledby="account-security-title">
       <h2 id="account-security-title">账号安全</h2>
+      {!user?.mustChangePassword && (
+        <section aria-labelledby="account-email-title">
+          <h3 id="account-email-title">验证邮箱</h3>
+          {mailbox ? (
+            <p>
+              {mailbox.email ? `已绑定：${mailbox.email}` : '尚未绑定邮箱'}。
+              {!mailbox.emailEnabled && '邮箱验证尚未开放，现有登录与作答不受影响。'}
+            </p>
+          ) : (
+            <button type="button" onClick={loadEmail}>
+              加载邮箱状态
+            </button>
+          )}
+          {mailbox?.emailEnabled && (
+            <form onSubmit={requestBinding} aria-busy={emailBusy}>
+              <label className="prd-label">
+                {mailbox.email ? '新邮箱' : '邮箱'}
+                <input
+                  className="prd-input"
+                  type="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+              </label>
+              <label className="prd-label">
+                核验当前密码
+                <input
+                  className="prd-input"
+                  type="password"
+                  autoComplete="current-password"
+                  value={emailPassword}
+                  onChange={(e) => setEmailPassword(e.target.value)}
+                  required
+                />
+              </label>
+              <button className="prd-button" type="submit" disabled={emailBusy}>
+                {emailBusy ? '申请中…' : '发送绑定验证链接'}
+              </button>
+            </form>
+          )}
+          {emailError && (
+            <p role="alert" className="prd-error">
+              {emailError}
+            </p>
+          )}
+          {emailMessage && <p role="status">{emailMessage}</p>}
+        </section>
+      )}
       {user?.mustChangePassword && (
         <p role="alert">
           管理员已恢复或设置密码。请先修改密码再继续作答；若刚从旧页面进入，请刷新后在本页完成改密。人工恢复凭据仅在

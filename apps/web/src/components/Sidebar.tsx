@@ -5,6 +5,7 @@ const MAIN = [
   ['/arena?role=attack', '攻击题库'],
   ['/arena?role=defense', '防御题库'],
   ['/leaderboard', '排行榜'],
+  ['/classes', '班级'],
   ['/achievements', '成就'],
   ['/profile', '个人资料'],
   ['/help', '使用帮助'],

@@ -515,6 +515,7 @@ export default function SolveQuestion() {
           </div>
         </div>
         <div className="solve-actions">
+          <Link className="prd-button" to={`/question/${encodeURIComponent(questionId)}/solutions`}>题解</Link>
           {definition.weights.enabled && (
             <button
               className="prd-button"

@@ -18,6 +18,7 @@ import {
 } from '../../lib/adminUsers'
 import TestAccountCreateForm from './TestAccountCreateForm'
 import { defaultAdminUserFilters, filterAdminUsers, type AdminUserFilters } from '../../lib/adminUserFilters'
+import { classroomsApi } from '../../lib/classrooms'
 
 const thStyle: React.CSSProperties = {
   padding: '12px 16px',
@@ -27,6 +28,85 @@ const thStyle: React.CSSProperties = {
   color: 'var(--text-muted)',
   textTransform: 'uppercase',
   letterSpacing: 1,
+}
+
+export function TeachingGrantControl({ userId, displayName }: { userId: string; displayName: string }) {
+  const [enabled, setEnabled] = useState<boolean | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [refresh, setRefresh] = useState(0)
+  const pending = useRef(false)
+  const alive = useRef(true)
+  useEffect(() => {
+    alive.current = true
+    return () => {
+      alive.current = false
+    }
+  }, [])
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setError('')
+    setEnabled(null)
+    classroomsApi
+      .getTeaching(userId)
+      .then((result) => {
+        if (active) setEnabled(result.enabled)
+      })
+      .catch(() => {
+        if (active) setError('教师权限加载失败，请重试。')
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [userId, refresh])
+  const save = async () => {
+    if (pending.current || enabled === null) return
+    pending.current = true
+    setSaving(true)
+    setError('')
+    try {
+      const result = await classroomsApi.setTeaching(userId, !enabled)
+      if (alive.current) setEnabled(result.enabled)
+    } catch {
+      if (alive.current) setError('教师权限操作失败，请重试；原授权状态未确认改变。')
+    } finally {
+      pending.current = false
+      if (alive.current) setSaving(false)
+    }
+  }
+  return (
+    <section className="prd-panel" aria-label="教师权限">
+      <h2>教师权限：{displayName}</h2>
+      <p className="prd-muted">
+        教师可创建、管理自己的班级和发布标准题解。授权不改变学员身份和成绩；撤销后立即失去管理权限，班级、成员和成绩保留。
+      </p>
+      {loading ? (
+        <p role="status">正在加载教师权限…</p>
+      ) : (
+        enabled !== null && <p role="status">{enabled ? '已授予教师权限' : '未授予教师权限'}</p>
+      )}
+      {error && (
+        <p className="prd-error" role="alert">
+          {error}
+        </p>
+      )}
+      <button className="prd-button" disabled={loading || saving || enabled === null} onClick={save}>
+        {saving ? '保存中…' : enabled ? '撤销教师权限' : '授予教师权限'}
+      </button>{' '}
+      <button
+        className="prd-button"
+        disabled={loading || saving}
+        onClick={() => setRefresh((value) => value + 1)}
+      >
+        刷新教师权限
+      </button>
+    </section>
+  )
 }
 
 export default function UserManager() {
@@ -57,6 +137,7 @@ export default function UserManager() {
   const [recovery, setRecovery] = useState<PasswordRecovery | null>(null)
   const [manualResetEnabled, setManualResetEnabled] = useState(false)
   const [eventUser, setEventUser] = useState<AdminUser | null>(null)
+  const [teachingUser, setTeachingUser] = useState<AdminUser | null>(null)
   const [authEvents, setAuthEvents] = useState<AuthEvent[]>([])
   const eventRequest = useRef(0)
 
@@ -359,6 +440,19 @@ export default function UserManager() {
             关闭密码操作
           </button>
         </section>
+      )}
+
+      {teachingUser && (
+        <div style={{ margin: '16px 0' }}>
+          <TeachingGrantControl
+            key={teachingUser.id}
+            userId={teachingUser.id}
+            displayName={teachingUser.displayName}
+          />
+          <button className="prd-button" onClick={() => setTeachingUser(null)}>
+            关闭教师权限
+          </button>
+        </div>
       )}
 
       {eventUser && (
@@ -671,6 +765,9 @@ export default function UserManager() {
                       <div
                         style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}
                       >
+                        <button className="prd-button" type="button" onClick={() => setTeachingUser(u)}>
+                          教师权限
+                        </button>
                         {!u.isTestAccount && (
                           <Link
                             className="prd-button"

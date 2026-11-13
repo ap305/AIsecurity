@@ -1,10 +1,9 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { useAuth } from '../contexts/AuthContext'
 import { validateNewPassword } from '../lib/authSession'
+import { authEmailApi } from '../lib/authEmail'
 
-export default function Register() {
-  const { register } = useAuth()
+export default function Register({ verificationToken = '' }: { verificationToken?: string }) {
   const navigate = useNavigate()
 
   const [displayName, setDisplayName] = useState('')
@@ -16,10 +15,42 @@ export default function Register() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [emailEnabled, setEmailEnabled] = useState<boolean | null>(null)
+  const [email, setEmail] = useState('')
+  const [emailBusy, setEmailBusy] = useState(false)
+  const [emailMessage, setEmailMessage] = useState('')
+  const loadConfig = () => {
+    setError('')
+    void authEmailApi
+      .config()
+      .then((config) => setEmailEnabled(config.emailEnabled))
+      .catch((err) => setError(err.message))
+  }
+  useEffect(loadConfig, [])
+  const sendEmail = async () => {
+    if (emailBusy) return
+    setError('')
+    setEmailMessage('')
+    setEmailBusy(true)
+    try {
+      await authEmailApi.request('registration', email)
+      setEmailMessage(
+        '申请已受理。如邮箱可用，系统将尝试发送验证链接。请在15分钟内打开邮件完成注册；本页密码不会保存。',
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '申请失败，请重试')
+    } finally {
+      setEmailBusy(false)
+    }
+  }
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setError('')
+    if (emailEnabled === null || (emailEnabled && !verificationToken)) {
+      setError('请先完成邮箱验证，再填写注册资料')
+      return
+    }
 
     if (!displayName.trim() || !school.trim() || !username.trim() || !password || !confirmPassword) {
       setError('请填写所有字段')
@@ -49,13 +80,14 @@ export default function Register() {
 
     setLoading(true)
     try {
-      await register({
+      await authEmailApi.register({
         displayName: displayName.trim(),
         school: school.trim(),
         username: username.trim(),
         password,
         studentId: studentId.trim() || undefined,
         phone: phone.trim() || undefined,
+        ...(emailEnabled ? { emailToken: verificationToken } : {}),
       })
       alert('注册成功！请登录')
       navigate('/login', { replace: true })
@@ -89,6 +121,37 @@ export default function Register() {
         </div>
 
         {/* Form */}
+        {emailEnabled === null && (
+          <p role="status">
+            正在检查注册配置…{' '}
+            <button type="button" onClick={loadConfig}>
+              重试
+            </button>
+          </p>
+        )}
+        {emailEnabled && !verificationToken && (
+          <div style={{ marginBottom: 16 }}>
+            <label htmlFor="register-email">注册邮箱</label>
+            <input
+              id="register-email"
+              className="form-input"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+            <button className="btn-primary" type="button" disabled={emailBusy || !email} onClick={sendEmail}>
+              {emailBusy ? '申请中…' : '发送注册验证链接'}
+            </button>
+            <p>请先打开邮件中的验证链接，再填写以下资料。已绑定邮箱请前往登录或找回密码。</p>
+          </div>
+        )}
+        {emailEnabled && verificationToken && (
+          <p role="status">
+            已读取邮箱验证链接，提交注册时完成验证。链接15分钟内有效；刷新本页后请重新打开邮件链接。
+          </p>
+        )}
+        {emailMessage && <p role="status">{emailMessage}</p>}
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: 14 }}>
             <label htmlFor="register-student-id" style={{ fontSize: 12 }}>
@@ -189,7 +252,7 @@ export default function Register() {
           <button
             className="btn-primary"
             type="submit"
-            disabled={loading}
+            disabled={loading || emailEnabled === null || (emailEnabled && !verificationToken)}
             style={{ width: '100%', marginTop: 8 }}
           >
             {loading ? '注册中...' : '注 册'}

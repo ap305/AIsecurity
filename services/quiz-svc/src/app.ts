@@ -10,6 +10,9 @@ import githubArchiveAdminRouter from './routes/githubArchiveAdmin.js'
 import authRouter from './routes/auth.js'
 import apiPoolRouter from './routes/apiPool.js'
 import modelUsageRouter from './routes/modelUsage.js'
+import classroomsRouter from './routes/classrooms.js'
+import questionSolutionsRouter from './routes/questionSolutions.js'
+import authEmailRouter from './routes/authEmail.js'
 import teacherLeasesRouter from './routes/teacherLeases.js'
 import arenaRouter from './routes/arena.js'
 import evaluationPackagesRouter from './routes/evaluationPackages.js'
@@ -18,12 +21,15 @@ import { passwordChangeOnlyMw } from './lib/auth.js'
 
 export const app = express()
 app.use(cors())
-app.use(express.json({ limit: '2mb' }))
+app.use(express.json({ limit: '2mb', inflate: false }))
 app.use('/api', passwordChangeOnlyMw)
 app.get('/api/health', (_req, res) =>
   res.json({ code: 0, message: 'ok', data: { service: 'quiz-svc', status: 'healthy' } }),
 )
 for (const router of [
+  classroomsRouter,
+  questionSolutionsRouter,
+  authEmailRouter,
   questionsRouter,
   submissionsRouter,
   arenaRouter,
@@ -41,6 +47,10 @@ for (const router of [
 ])
   app.use('/api', router)
 app.use((error: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  if (error?.type === 'encoding.unsupported') {
+    res.status(415).json({ code: 41501, message: '不支持压缩的 JSON 请求，请发送未压缩 JSON', data: null })
+    return
+  }
   const inputError =
     error?.name === 'MulterError' || error?.type === 'entity.too.large' || error instanceof SyntaxError
   res.status(inputError ? 400 : 500).json({

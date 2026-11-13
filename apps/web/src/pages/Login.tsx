@@ -170,7 +170,8 @@ export default function Login() {
         </button>
         {showRecoveryHelp && (
           <p role="status">
-            请联系授课老师或平台管理员，核验身份后人工恢复密码。手机验证和短信找回尚未开放。
+            请联系授课老师或平台管理员，核验身份后人工恢复密码。手机验证和短信找回尚未开放。{' '}
+            <Link to="/password-recovery">已绑定邮箱？查看邮箱找回</Link>
           </p>
         )}
 

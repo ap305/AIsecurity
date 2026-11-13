@@ -165,6 +165,6 @@ export function apiPut<T>(path: string, body: unknown, timeoutMs?: number): Prom
   return request<T>(path, { method: 'PUT', body: JSON.stringify(body) }, timeoutMs)
 }
 
-export function apiDelete<T>(path: string): Promise<T> {
-  return request<T>(path, { method: 'DELETE' })
+export function apiDelete<T>(path: string, timeoutMs?: number): Promise<T> {
+  return request<T>(path, { method: 'DELETE' }, timeoutMs)
 }

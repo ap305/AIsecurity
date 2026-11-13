@@ -54,7 +54,7 @@ export interface AdminStudentScoreSummary {
 }
 
 /** Read only the selected page's students; no source code, upload paths or result payloads are selected. */
-async function questionScoresForStudents(db: Prisma.TransactionClient, userIds: string[]) {
+export async function questionScoresForStudents(db: Prisma.TransactionClient, userIds: string[]) {
   const byStudent = new Map(userIds.map((id) => [id, [] as AdminStudentQuestionScore[]]))
   if (!userIds.length) return byStudent
   const [submissions, basicScores, slots] = await Promise.all([

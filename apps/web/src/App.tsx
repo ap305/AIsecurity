@@ -5,6 +5,10 @@ import Sidebar from './components/Sidebar'
 import ProtectedRoute from './components/ProtectedRoute'
 import Login from './pages/Login'
 import Register from './pages/Register'
+import EmailVerification from './pages/EmailVerification'
+import PasswordRecovery from './pages/PasswordRecovery'
+import Classes from './pages/Classes'
+import QuestionSolutions from './pages/QuestionSolutions'
 import ChangePassword from './pages/ChangePassword'
 import QuestionHall from './pages/QuestionHall'
 import Profile from './pages/Profile'
@@ -88,6 +92,8 @@ export default function App() {
         {/* Login / Register — no shell */}
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/email-verification" element={<EmailVerification />} />
+        <Route path="/password-recovery" element={<PasswordRecovery />} />
 
         {/* All authenticated routes — with shell */}
         <Route element={<ProtectedRoute />}>
@@ -96,10 +102,12 @@ export default function App() {
             <Route path="/" element={<QuestionHall category="basic" />} />
             <Route path="/module/:moduleCode" element={<Navigate to="/" replace />} />
             <Route path="/question/:questionId" element={<SolveRoute />} />
+            <Route path="/question/:questionId/solutions" element={<QuestionSolutions />} />
             <Route path="/arena" element={<QuestionHall category="adversarial" />} />
             <Route path="/arena/:questionId" element={<SolveRoute />} />
             <Route path="/leaderboard" element={<Leaderboard />} />
             <Route path="/profile" element={<Profile />} />
+            <Route path="/classes" element={<Classes />} />
             <Route path="/achievements" element={<Achievements />} />
             <Route path="/help" element={<Help />} />
             <Route path="/llm-config" element={<Navigate to="/help" replace />} />

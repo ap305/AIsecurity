@@ -7,6 +7,87 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Additive teaching features leave legacy user identities and scoring rows intact.
+model TeacherGrant {
+  userId    String @id
+  grantedBy String
+  createdAt DateTime @default(now())
+}
+
+model Classroom {
+  id          String @id @default(uuid())
+  name        String
+  description String @default("")
+  ownerId     String
+  inviteCode  String @unique
+  archivedAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  @@index([ownerId])
+}
+
+model ClassMembership {
+  id          String @id @default(uuid())
+  classroomId String
+  userId      String
+  joinedAt    DateTime @default(now())
+  @@unique([classroomId, userId])
+  @@index([userId])
+}
+
+model ClassJoinThrottle {
+  userId          String @id
+  attempts        Int @default(0)
+  windowStartedAt DateTime @default(now())
+}
+
+model QuestionSolution {
+  id                 String @id @default(uuid())
+  questionId         String
+  questionVersion    Int
+  authorId           String
+  kind               String
+  title              String
+  explanation        String @default("")
+  code               String @default("")
+  sourceSubmissionId String?
+  referenceKind      String?
+  published          Boolean @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  @@index([questionId, questionVersion, published])
+  @@index([sourceSubmissionId])
+  @@index([authorId])
+}
+
+model UserEmail {
+  userId     String @id
+  email      String @unique
+  verifiedAt DateTime @default(now())
+}
+
+model EmailChallenge {
+  id             String @id @default(uuid())
+  purpose        String
+  email          String
+  userId         String?
+  tokenHash      String @unique
+  sessionVersion Int?
+  expiresAt      DateTime
+  consumedAt     DateTime?
+  createdAt      DateTime @default(now())
+  @@index([email, purpose])
+  @@index([expiresAt])
+  @@index([userId])
+}
+
+model EmailSendThrottle {
+  key             String @id
+  count           Int @default(0)
+  windowStartedAt DateTime @default(now())
+  lastSentAt      DateTime @default(now())
+}
+
 model Question {
   id             String   @id
   moduleCode     String

@@ -21,6 +21,7 @@ import {
   listAuthEvents,
 } from '../lib/auth.js'
 import { AuthError } from '../lib/authPassword.js'
+import { emailEnabled } from '../services/emailSender.js'
 
 /**
  * 集中式账号接口
@@ -68,7 +69,10 @@ function authFailure(res: Response, error: unknown, fallback: string): void {
     .json({ code: error instanceof AuthError ? error.code : status === 503 ? 50300 : status === 403 ? 40300 : 40001, message: authPublicMessage(error, fallback), data: error instanceof AuthError && error.retryAfterSeconds ? { retryAfterSeconds: error.retryAfterSeconds } : null })
 }
 
-router.get('/auth/config', (_req, res) => res.json({ code: 0, message: 'ok', data: { manualResetEnabled: true } }))
+router.get('/auth/config', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
+  res.json({ code: 0, message: 'ok', data: { manualResetEnabled: true, emailEnabled: emailEnabled() } })
+})
 
 router.post('/auth/logout', async (req, res) => {
   try {
@@ -121,7 +125,7 @@ router.put('/auth/me', async (req, res) => {
 // ── POST /api/auth/register ──────────────────────────────────────────────
 router.post('/auth/register', async (req: Request, res: Response) => {
   try {
-    const { username, password, displayName, school, studentId, phone } = (req.body ?? {}) as Record<
+    const { username, password, displayName, school, studentId, phone, emailToken } = (req.body ?? {}) as Record<
       string,
       unknown
     >
@@ -132,6 +136,7 @@ router.post('/auth/register', async (req: Request, res: Response) => {
       school: String(school ?? ''),
       studentId: String(studentId ?? ''),
       phone: String(phone ?? ''),
+      emailToken: typeof emailToken === 'string' ? emailToken : undefined,
     })
     res.json({ code: 0, message: 'ok', data: { user } })
   } catch (err) {

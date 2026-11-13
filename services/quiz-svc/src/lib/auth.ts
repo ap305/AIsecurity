@@ -10,6 +10,8 @@ import { RequestError, validateOptionalProfile } from './prdContract.js'
 import type { Prisma } from '@prisma/client'
 import { AuthError, hashPasswordAsync, verifyPasswordAsync, validateNewPassword } from './authPassword.js'
 import { authEvent, digest, assertLoginAvailable, loginFailure, INITIAL_PASSWORD } from './authSecurity.js'
+import { emailEnabled } from '../services/emailSender.js'
+import { consumeRegistrationEmailTx } from '../services/authEmail.js'
 
 /**
  * 集中式账号认证
@@ -302,6 +304,7 @@ export async function registerStudent(input: {
   school?: string
   studentId?: string
   phone?: string
+  emailToken?: string
 }): Promise<PublicUser> {
   const username = input.username.trim()
   const displayName = input.displayName.trim()
@@ -312,8 +315,7 @@ export async function registerStudent(input: {
   validateNewPassword(input.password)
   const exists = await prisma.user.findUnique({ where: { username } })
   if (exists) throw new Error('用户名已存在')
-  const row = await prisma.user.create({
-    data: {
+  const data = {
       username,
       password: await hashPasswordAsync(input.password),
       displayName,
@@ -321,8 +323,15 @@ export async function registerStudent(input: {
       ...validateOptionalProfile(input),
       role: 'student',
       tier: 'bronze',
-    },
-  })
+  }
+  const row = emailEnabled() ? await transaction(async tx => {
+    const email = await consumeRegistrationEmailTx(tx, input.emailToken)
+    if (await tx.user.findUnique({ where: { username } })) throw new RequestError('用户名已存在', 409)
+    const created = await tx.user.create({ data })
+    await tx.userEmail.create({ data: { userId: created.id, email, verifiedAt: new Date() } })
+    await authEvent(tx, 'auth.email.registration', created.id)
+    return created
+  }) : await prisma.user.create({ data })
   return toPublicUser(row as UserRow)
 }
 

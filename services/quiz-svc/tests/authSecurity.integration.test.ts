@@ -218,7 +218,7 @@ test('in-flight evaluation, teacher and selftest capabilities retain purpose iso
 })
 
 test('manual recovery config and last login expose public metadata only', async () => {
-  assert.deepEqual((await request('/auth/config')).json.data, { manualResetEnabled: true })
+  assert.deepEqual((await request('/auth/config')).json.data, { manualResetEnabled: true, emailEnabled: false })
   const result = await request('/auth/me', 'GET', undefined, adminToken)
   assert.equal(result.status, 200)
   assert.ok(Number.isFinite(Date.parse(result.json.data.user.lastLoginAt)))
