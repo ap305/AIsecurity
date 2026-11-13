@@ -73,8 +73,8 @@ All references scalar, indexed; deletion/status/version checked in feature queri
 - [x] Environment-only config example with placeholders and SMTP enablement checklist; run mock integration tests, no real messages.
 
 ### Task 5: integration, independent review and release (root)
-- [ ] Cross-feature auth/router/UI integration and independent privacy/permission review.
-- [ ] Backend full regression, frontend tests/typecheck/build; meaningful skipped test limits documented.
-- [ ] Commit exact candidate, tag and stage isolated clone; backup and compare existing rows, roles, scores, active queues. No production mail or model generation.
-- [ ] Publish classroom/opt-in-solution functionality only after acceptance; email disabled without SMTP. Preserve current sessions, old assets and score definitions.
-- [ ] Record actual verification and any blocked external mail activation; sync only sanitized source/tests/docs to existing GitHub repository.
+- [x] Cross-feature auth/router/UI integration and independent privacy/permission review.
+- [x] Backend full regression, frontend tests/typecheck/build; meaningful skipped test limits documented.
+- [x] Commit exact candidate, tag and stage isolated clone; backup and compare existing rows, roles, scores, active queues. No production mail or model generation.
+- [x] Publish classroom/opt-in-solution functionality only after acceptance; email disabled without SMTP. Preserve current sessions, old assets and score definitions.
+- [x] Record actual verification and external mail activation prerequisites; prepare only sanitized source/tests/docs for synchronization to the existing GitHub repository. Verify the remote branch after pushing; no private history or runtime data is included.
