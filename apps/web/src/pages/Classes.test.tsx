@@ -193,6 +193,102 @@ test('teacher sees safe export instructions and export failure releases only its
   assert.match(renderToStaticMarkup(view.render()), /导出失败/)
 })
 
+test('saving a previous class cannot overwrite the newly selected class draft', async (t) => {
+  const first = { ...classroom, ownerId: 'teacher', inviteCode: 'FIRST' }
+  const second = { ...first, id: 'c2', name: '安全二班', description: '二班已保存说明' }
+  const pending = deferred<typeof first>()
+  t.mock.method(classroomsApi, 'list', async () => ({
+    canTeach: true,
+    owned: [first, second],
+    joined: [],
+  }))
+  t.mock.method(classroomsApi, 'get', async (id: string) => ({
+    ...(id === first.id ? first : second),
+    canManage: true,
+    isMember: false,
+    members: [],
+  }))
+  t.mock.method(classroomsApi, 'update', () => pending.promise)
+  const view = page(t)
+  view.render()
+  await settle()
+  button(view.render(), '管理安全一班').props.onClick()
+  view.render()
+  await settle()
+  const saving = button(view.render(), '保存班级资料').props.onClick()
+  button(view.render(), '管理安全二班').props.onClick()
+  view.render()
+  await settle()
+  const name = () => elements(view.render()).find((el) => el.props.id === 'class-edit-name')!
+  const description = () => elements(view.render()).find((el) => el.props.id === 'class-edit-description')!
+  name().props.onChange({ target: { value: '二班尚未保存的新名称' } })
+  description().props.onChange({ target: { value: '二班尚未保存的新说明' } })
+  pending.resolve(first)
+  await saving
+  view.render()
+  await settle()
+  assert.equal(name().props.value, '二班尚未保存的新名称')
+  assert.equal(description().props.value, '二班尚未保存的新说明')
+})
+
+test('invite refresh preserves a draft while save and class selection load current server fields', async (t) => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { confirm: () => true } })
+  t.after(() =>
+    original
+      ? Object.defineProperty(globalThis, 'window', original)
+      : Reflect.deleteProperty(globalThis, 'window'),
+  )
+  let first = { ...classroom, ownerId: 'teacher', inviteCode: 'FIRST' }
+  const second = { ...first, id: 'c2', name: '安全二班', description: '二班已保存说明' }
+  t.mock.method(classroomsApi, 'list', async () => ({
+    canTeach: true,
+    owned: [first, second],
+    joined: [],
+  }))
+  t.mock.method(classroomsApi, 'get', async (id: string) => ({
+    ...(id === first.id ? first : second),
+    canManage: true,
+    isMember: false,
+    members: [],
+  }))
+  t.mock.method(classroomsApi, 'rotateInvite', async () => {
+    first = { ...first, inviteCode: 'ROTATED' }
+    return first
+  })
+  t.mock.method(classroomsApi, 'update', async (_id: string, fields: Parameters<typeof classroomsApi.update>[1]) => {
+    first = { ...first, name: fields.name!.trim(), description: fields.description! }
+    return first
+  })
+  const view = page(t)
+  const name = () => elements(view.render()).find((el) => el.props.id === 'class-edit-name')!
+  const description = () => elements(view.render()).find((el) => el.props.id === 'class-edit-description')!
+  view.render()
+  await settle()
+  button(view.render(), '管理安全一班').props.onClick()
+  view.render()
+  await settle()
+  name().props.onChange({ target: { value: '  一班新名称  ' } })
+  description().props.onChange({ target: { value: '一班新说明' } })
+  button(view.render(), '重置邀请码').props.onClick()
+  await settle()
+  view.render()
+  await settle()
+  assert.equal(name().props.value, '  一班新名称  ')
+  assert.equal(description().props.value, '一班新说明')
+  assert.match(renderToStaticMarkup(view.render()), /ROTATED/)
+  await button(view.render(), '保存班级资料').props.onClick()
+  view.render()
+  await settle()
+  assert.equal(name().props.value, '一班新名称')
+  assert.equal(description().props.value, '一班新说明')
+  button(view.render(), '管理安全二班').props.onClick()
+  view.render()
+  await settle()
+  assert.equal(name().props.value, '安全二班')
+  assert.equal(description().props.value, '二班已保存说明')
+})
+
 test('administrator teaching control reads the grant, saves explicitly and remains usable after failure', async (t) => {
   t.mock.method(globalThis, 'fetch', async (_url: RequestInfo | URL, options?: RequestInit) => {
     if (options?.method === 'PUT')

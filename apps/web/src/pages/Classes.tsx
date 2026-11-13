@@ -17,6 +17,7 @@ export default function Classes() {
   const [detailError, setDetailError] = React.useState('')
   const [editName, setEditName] = React.useState('')
   const [editDescription, setEditDescription] = React.useState('')
+  const editDraft = React.useRef({ classId: '', revision: 0, dirty: false })
   const [busy, setBusy] = React.useState<string[]>([])
   const pending = React.useRef(new Set<string>())
   const mounted = React.useRef(true)
@@ -52,6 +53,9 @@ export default function Classes() {
 
   React.useEffect(() => {
     let active = true
+    if (editDraft.current.classId !== selectedId) {
+      editDraft.current = { classId: selectedId, revision: editDraft.current.revision + 1, dirty: false }
+    }
     setDetail(null)
     setDetailError('')
     if (!selectedId) {
@@ -66,8 +70,11 @@ export default function Classes() {
       .then((value) => {
         if (!active) return
         setDetail(value)
-        setEditName(value.name)
-        setEditDescription(value.description)
+        // Membership/invite updates and late saves must not erase the current form draft.
+        if (!editDraft.current.dirty) {
+          setEditName(value.name)
+          setEditDescription(value.description)
+        }
       })
       .catch(() => {
         if (active) setDetailError('班级详情加载失败，可能已退出或管理权限已变化。请重试。')
@@ -325,7 +332,11 @@ export default function Classes() {
                       maxLength={80}
                       value={editName}
                       disabled={busy.includes(`edit:${current.id}`)}
-                      onChange={(event) => setEditName(event.target.value)}
+                      onChange={(event) => {
+                        editDraft.current.dirty = true
+                        editDraft.current.revision += 1
+                        setEditName(event.target.value)
+                      }}
                     />
                     <label htmlFor="class-edit-description">班级说明</label>
                     <textarea
@@ -334,17 +345,26 @@ export default function Classes() {
                       maxLength={1000}
                       value={editDescription}
                       disabled={busy.includes(`edit:${current.id}`)}
-                      onChange={(event) => setEditDescription(event.target.value)}
+                      onChange={(event) => {
+                        editDraft.current.dirty = true
+                        editDraft.current.revision += 1
+                        setEditDescription(event.target.value)
+                      }}
                     />
                     <button
                       className="prd-button"
                       disabled={!editName.trim() || busy.includes(`edit:${current.id}`)}
                       onClick={() =>
                         run(`edit:${current.id}`, '保存班级', async () => {
+                          const savedRevision = editDraft.current.revision
                           await classroomsApi.update(current.id, {
                             name: editName,
                             description: editDescription,
                           })
+                          if (
+                            editDraft.current.classId === current.id &&
+                            editDraft.current.revision === savedRevision
+                          ) editDraft.current.dirty = false
                           changed('班级资料已保存。')
                         })
                       }
