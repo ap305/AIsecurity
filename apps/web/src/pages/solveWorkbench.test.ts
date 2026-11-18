@@ -23,6 +23,85 @@ test('draft identities preserve the existing key and isolate accounts, questions
   assert.equal(new Set(keys).size, keys.length)
 })
 
+function draftStorage() {
+  const rows = new Map<string, string>()
+  const writes: string[] = []
+  const read = (key: string) => rows.get(key) ?? null
+  const write = (key: string, value: string) => {
+    rows.set(key, value)
+    writes.push(key)
+    return true
+  }
+  return { rows, writes, read, write }
+}
+
+test('passive draft views never overwrite a newer legacy-format draft on timer, reload or close', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const { rows, writes, read, write } = draftStorage()
+  const key = draftStorageKey('alice', 'Q', 2)
+  rows.set(key, 'old')
+  assert.equal(typeof workbench.createQuestionDraft, 'function', 'require draft persistence scoped to local edits')
+  const open = () => workbench.createQuestionDraft(key, 'template', read, write, () => {})
+  const observer = open()
+  assert.equal(observer.value, 'old')
+  rows.set(key, 'new from the old-version tab')
+  t.mock.timers.tick(600)
+  observer.flush()
+  observer.flush()
+  for (let reload = 0; reload < 2; reload++) {
+    const refreshed = open()
+    assert.equal(refreshed.value, 'new from the old-version tab')
+    refreshed.flush()
+  }
+  assert.deepEqual(writes, [])
+  assert.equal(observer.save(), 'new from the old-version tab')
+  assert.deepEqual(writes, [])
+})
+
+test('coalesces actual draft edits, flushes the latest even on immediate close and isolates keys', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const { rows, writes, read, write } = draftStorage()
+  const keys = [draftStorageKey('alice', 'A', 1), draftStorageKey('bob', 'A', 1), draftStorageKey('alice', 'B', 2)]
+  for (const key of keys) {
+    const draft = workbench.createQuestionDraft(key, 'template', read, write, () => {})
+    draft.edit('first edit')
+    draft.edit('history copy')
+    t.mock.timers.tick(599)
+    assert.equal(rows.has(key), false)
+    draft.flush()
+    draft.flush()
+    assert.equal(rows.get(key), 'history copy')
+    draft.edit('') // An intentionally empty reset or edit is a valid draft.
+    t.mock.timers.tick(600)
+    assert.equal(rows.get(key), '')
+    rows.set(key, 'newer external change')
+    draft.flush()
+    assert.equal(rows.get(key), 'newer external change')
+  }
+  assert.deepEqual(writes, keys.flatMap((key) => [key, key]))
+})
+
+test('manual save persists an untouched template only when absent, and retries storage errors', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const { rows, writes, read, write } = draftStorage()
+  const states: string[] = []
+  let available = true
+  const draft = workbench.createQuestionDraft('key', 'template', read,
+    (key, value) => available && write(key, value), (state) => states.push(state))
+  assert.equal(states.at(-1), 'pristine')
+  assert.equal(draft.save(), 'template')
+  assert.equal(rows.get('key'), 'template')
+  available = false
+  draft.edit('modified')
+  t.mock.timers.tick(600)
+  assert.equal(states.at(-1), 'error')
+  available = true
+  assert.equal(draft.save(), 'modified')
+  assert.equal(states.at(-1), 'saved')
+  draft.flush()
+  assert.deepEqual(writes, ['key', 'key'])
+})
+
 test('public metric summary accepts real zero and rejects nested data and nonfinite values', () => {
   const row = {
     diagnostics: {

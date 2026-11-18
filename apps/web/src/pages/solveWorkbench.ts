@@ -16,6 +16,56 @@ export function draftStorageKey(userId: string | undefined, questionId: string, 
   return `prd_draft_${userId ?? 'unknown'}_${questionId}_${revision}`
 }
 
+export type DraftStatus = 'pristine' | 'saving' | 'saved' | 'error'
+
+export function createQuestionDraft(
+  key: string,
+  template: string,
+  read: (key: string) => string | null,
+  write: (key: string, value: string) => boolean,
+  setStatus: (status: DraftStatus) => void,
+) {
+  const stored = read(key)
+  let value = stored ?? template
+  let dirty = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+  setStatus(stored === null ? 'pristine' : 'saved')
+
+  function flush() {
+    clearTimeout(timer)
+    if (!dirty) return
+    dirty = !write(key, value)
+    setStatus(dirty ? 'error' : 'saved')
+  }
+
+  return {
+    key,
+    get value() { return value },
+    edit(next: string) {
+      value = next
+      dirty = true
+      setStatus('saving')
+      clearTimeout(timer)
+      timer = setTimeout(flush, 600)
+    },
+    save() {
+      if (!dirty) {
+        // A passive tab may still display an older draft saved by another release.
+        const current = read(key)
+        if (current !== null) {
+          value = current
+          setStatus('saved')
+          return value
+        }
+        dirty = true
+      }
+      flush()
+      return value
+    },
+    flush,
+  }
+}
+
 export function createLatestRequest() {
   let current = 0
   return {

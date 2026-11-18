@@ -21,7 +21,9 @@ import ArenaTeachingBriefing from '../components/ArenaTeachingBriefing'
 import LegacyUploadHistory from '../components/LegacyUploadHistory'
 import SubmissionDiagnostics from '../components/SubmissionDiagnostics'
 import {
+  createQuestionDraft,
   draftStorageKey,
+  type DraftStatus,
   editorLanguage,
   publicMetrics,
   submissionPhaseLabel,
@@ -42,6 +44,12 @@ import {
 } from '../lib/prdApi'
 
 const CodeEditor = lazy(() => import('../components/CodeEditor'))
+const draftStatusText: Record<DraftStatus, string> = {
+  pristine: '尚未修改',
+  saving: '正在保存草稿…',
+  saved: '草稿已保存',
+  error: '浏览器无法保存草稿',
+}
 function safeRead(key: string): string | null {
   try {
     return localStorage.getItem(key)
@@ -169,8 +177,7 @@ export default function SolveQuestion() {
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState(0)
-  const [saved, setSaved] = useState(false)
-  const [draftError, setDraftError] = useState(false)
+  const [draftStatus, setDraftStatus] = useState<DraftStatus>('pristine')
   const [leftTab, setLeftTab] = useState<'description' | 'resources' | 'history'>('description')
   const [mobilePane, setMobilePane] = useState<'question' | 'code'>('question')
   const [toolPanel, setToolPanel] = useState<'materials' | 'teacher' | null>(null)
@@ -181,7 +188,7 @@ export default function SolveQuestion() {
   const inspectionRequest = useRef(createLatestRequest())
   const editorPanel = useRef<HTMLDivElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
-  const draftContext = useRef<string | null>(null)
+  const draftContext = useRef<ReturnType<typeof createQuestionDraft> | null>(null)
   const [reload, setReload] = useState(0)
   const requestIdentity = useRef<{ signature: string; key: string } | null>(null)
   const scopeIdentity = user?.id + '::' + questionId
@@ -211,8 +218,7 @@ export default function SolveQuestion() {
     setInspectedSubmission(null)
     setHistoryLoading(false)
     inspectionRequest.current.invalidate()
-    setSaved(false)
-    setDraftError(false)
+    setDraftStatus('pristine')
     draftContext.current = null
     setUploading(false)
     requestIdentity.current = null
@@ -221,8 +227,14 @@ export default function SolveQuestion() {
       .then((q) => {
         if (!stopped) {
           setQuestion(q)
-          draftContext.current = draftStorageKey(user?.id, questionId, q.revision)
-          setCode(safeRead(draftContext.current) ?? q.answerTemplate ?? '')
+          const draft = createQuestionDraft(
+            draftStorageKey(user?.id, questionId, q.revision), q.answerTemplate ?? '',
+            safeRead, safeWrite, setDraftStatus,
+          )
+          draftContext.current = draft
+          setCode(draft.value)
+          window.addEventListener('pagehide', draft.flush)
+          window.addEventListener('beforeunload', draft.flush)
           const restoredTask = safeRead(taskKey)
           setActiveId(restoredTask)
           if (restoredTask) setResultOpen(true)
@@ -251,26 +263,15 @@ export default function SolveQuestion() {
       })
     return () => {
       stopped = true
+      const draft = draftContext.current
+      if (draft) {
+        window.removeEventListener('pagehide', draft.flush)
+        window.removeEventListener('beforeunload', draft.flush)
+        draft.flush()
+        draftContext.current = null
+      }
     }
   }, [questionId, user?.id, reload, taskKey])
-  useEffect(() => {
-    if (!question || question.id !== questionId || draftContext.current !== draftKey) return
-    const save = () => {
-      const stored = safeWrite(draftKey, code)
-      setSaved(stored)
-      setDraftError(!stored)
-    }
-    const timer = setTimeout(save, 600)
-    const flush = () => {
-      safeWrite(draftKey, code)
-    }
-    window.addEventListener('beforeunload', flush)
-    return () => {
-      clearTimeout(timer)
-      window.removeEventListener('beforeunload', flush)
-      flush()
-    }
-  }, [code, draftKey, question, questionId])
   useEffect(() => {
     if (!activeId) return
     let stopped = false
@@ -441,10 +442,15 @@ export default function SolveQuestion() {
     setHistoryLoading(false)
     setMobilePane('code')
   }
+  const editDraft = (value: string) => {
+    const draft = draftContext.current
+    if (draft?.key !== draftKey) return
+    draft.edit(value)
+    setCode(value)
+  }
   const loadHistoricalCode = (item: SubmissionRecord) => {
     if (!item.code || !window.confirm('用这次提交的代码替换当前草稿？当前草稿会被覆盖。')) return
-    setCode(item.code)
-    setSaved(false)
+    editDraft(item.code)
     focusCode()
   }
   const refreshHistory = () => {
@@ -590,7 +596,7 @@ export default function SolveQuestion() {
           )}
         </div>
       )}
-      {draftError && (
+      {draftStatus === 'error' && (
         <p className="solve-alert prd-error" role="alert">
           浏览器无法保存草稿，请保留本地代码副本，避免刷新后丢失。
         </p>
@@ -803,15 +809,14 @@ export default function SolveQuestion() {
             </div>
             <div className="solve-editor-actions">
               <span className="solve-save-status" role="status">
-                {draftError ? '浏览器无法保存草稿' : saved ? '草稿已保存' : '正在保存草稿…'}
+                {draftStatusText[draftStatus]}
               </span>
               <button
                 className="prd-button"
                 disabled={uploading}
                 onClick={() => {
-                  const stored = safeWrite(draftKey, code)
-                  setSaved(stored)
-                  setDraftError(!stored)
+                  const draft = draftContext.current
+                  if (draft?.key === draftKey) setCode(draft.save())
                 }}
               >
                 保存
@@ -821,8 +826,7 @@ export default function SolveQuestion() {
                 disabled={uploading}
                 onClick={() => {
                   if (window.confirm('重置会覆盖当前代码草稿，是否继续？')) {
-                    setCode(question.answerTemplate ?? '')
-                    setSaved(false)
+                    editDraft(question.answerTemplate ?? '')
                   }
                 }}
               >
@@ -837,10 +841,7 @@ export default function SolveQuestion() {
             <Suspense fallback={<div className="prd-loading">正在加载编辑器…</div>}>
               <CodeEditor
                 value={code}
-                onChange={(value) => {
-                  setCode(value)
-                  setSaved(false)
-                }}
+                onChange={editDraft}
                 language={editorLanguage(question)}
                 height="100%"
                 readOnly={uploading}
