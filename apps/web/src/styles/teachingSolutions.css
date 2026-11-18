@@ -1,7 +1,7 @@
 .teaching-solutions {
   max-width: 1280px;
   margin: 0 auto;
-  padding: 24px;
+  padding: 0;
 }
 .teaching-solutions-heading,
 .teaching-solutions-toolbar,
@@ -16,13 +16,16 @@
   justify-content: space-between;
 }
 .teaching-solutions-heading h1 {
-  margin-top: 4px;
+  margin: 0;
+}
+.teaching-solutions-heading .lecture-editor-jump {
+  display: none;
 }
 .teaching-solutions-scope {
   padding: 18px 20px;
   margin: 20px 0;
   border: 1px solid var(--border-color, #475569);
-  border-left: 4px solid var(--accent-color, #60a5fa);
+  border-left: 3px solid var(--brand-cyan);
   border-radius: 10px;
   background: var(--bg-secondary, #111827);
 }
@@ -52,6 +55,16 @@
 .teaching-solutions-item,
 .teaching-solutions-editor {
   padding: 20px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+}
+.teaching-solutions-editor h2 {
+  scroll-margin-block-start: calc(var(--topbar-height) + 20px);
+}
+.teaching-solutions-editor h2:focus-visible {
+  outline: 2px solid var(--brand-cyan);
+  outline-offset: 3px;
 }
 .teaching-solutions-item {
   margin-bottom: 16px;
@@ -99,7 +112,23 @@
   .teaching-solutions-layout {
     grid-template-columns: minmax(0, 1fr);
   }
-  .teaching-solutions {
+  .teaching-solutions-heading .lecture-editor-jump {
+    display: inline-flex;
+  }
+  .teaching-solutions-scope {
+    margin: 14px 0;
+    padding: 12px 14px;
+  }
+  .teaching-solutions-item,
+  .teaching-solutions-editor {
     padding: 16px;
+  }
+}
+@media (max-width: 600px) {
+  .teaching-solutions-editor h2 {
+    scroll-margin-block-start: calc(var(--topbar-height) + 84px);
+  }
+  .app-body:has(nav[aria-label='管理员功能']) .teaching-solutions-editor h2 {
+    scroll-margin-block-start: calc(var(--topbar-height) + 136px);
   }
 }

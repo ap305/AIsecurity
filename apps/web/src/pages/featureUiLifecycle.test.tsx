@@ -426,6 +426,7 @@ test('leaving a previous class cannot close the newly selected class details', a
   ui.render()
   await settle()
   button(ui.render(), '退出班级').props.onClick()
+  button(ui.render(), '关闭详情').props.onClick()
   button(ui.render(), '查看二班').props.onClick()
   ui.render()
   await settle()

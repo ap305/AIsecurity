@@ -52,6 +52,7 @@ function previewCard(draft: Draft): QuestionSolution {
 
 export default function TeachingSolutions() {
   const token = getAuthToken()
+  const editorHeading = useRef<HTMLHeadingElement>(null)
   const scope = useRef({ token, mounted: true, read: 0, editor: 0, busy: false })
   if (scope.current.token !== token) scope.current = { token, mounted: true, read: 0, editor: 0, busy: false }
   const current = scope.current
@@ -158,6 +159,11 @@ export default function TeachingSolutions() {
       referenceKind: row.referenceKind ?? 'same_role',
     })
     if (readonly) setPreview(true)
+    if (editorHeading.current)
+      requestAnimationFrame(() => {
+        editorHeading.current?.focus({ preventScroll: true })
+        editorHeading.current?.scrollIntoView({ block: 'start' })
+      })
   }
   function change(key: 'title' | 'explanation' | 'code' | 'referenceKind', value: string) {
     if (!isCurrent() || current.busy) return
@@ -269,17 +275,22 @@ export default function TeachingSolutions() {
     <main className="prd-page teaching-solutions">
       <header className="teaching-solutions-heading">
         <div>
-          <p className="prd-muted">教师工作台</p>
           <h1>我的讲解</h1>
         </div>
-        <Link className="prd-button" to="/teaching">
-          返回班级管理
-        </Link>
+        <div className="teaching-solutions-actions">
+          {data && (
+            <a className="prd-button primary lecture-editor-jump" href="#lecture-editor-heading">
+              前往讲解编辑区
+            </a>
+          )}
+          <Link className="prd-button" to="/teaching">
+            返回班级管理
+          </Link>
+        </div>
       </header>
       <aside className="teaching-solutions-scope" aria-label="发布范围">
         <strong>发布后，全站已登录用户可见。</strong>
-        <p>讲解按题目公开，不限于你的班级。此处只管理你本人发布的教师讲解；管理员也仅显示自己的讲解。</p>
-        <p>教师手工讲解不会替换当前实际评测基线，也不会改变评测与成绩。模型权重不会自动公开。</p>
+        <p>教师讲解用于学习参考，不会替换实际评测基线。</p>
       </aside>
       {sameAccount && error && (
         <p className="prd-error" role="alert">
@@ -391,7 +402,9 @@ export default function TeachingSolutions() {
             </nav>
           </section>
           <section className="prd-card teaching-solutions-editor" aria-label="讲解创作">
-            <h2>{editor?.id ? '查看与编辑讲解' : '新建教师讲解'}</h2>
+            <h2 id="lecture-editor-heading" ref={editorHeading} tabIndex={-1}>
+              {editor?.id ? '查看与编辑讲解' : '新建教师讲解'}
+            </h2>
             <label>
               选择已发布题目
               <select

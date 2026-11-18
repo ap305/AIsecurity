@@ -147,18 +147,20 @@ export default function Classes({ workspace = 'practice' }: { workspace?: 'pract
 
   return (
     <div className="prd-page class-workbench">
-      <div className="prd-split">
+      <div className="prd-split class-page-heading">
         <div>
           <h1>{teaching ? '教学工作台' : '我的班级'}</h1>
-          <p className="prd-muted">
-            {teaching
-              ? '管理班级、查看成员和当前成绩。教师仅管理自己的班级，管理员可管理全部班级。'
-              : '通过邀请码加入课程班级。加入班级不影响自由练习和已有成绩。'}
-          </p>
+          {!selectedId && !teaching && <p className="prd-muted">使用教师提供的邀请码加入班级。</p>}
         </div>
-        <button className="prd-button" disabled={loading} onClick={() => setRefresh((value) => value + 1)}>
-          刷新班级
-        </button>
+        {selectedId ? (
+          <button className="prd-button" onClick={() => selectClass('')}>
+            关闭详情
+          </button>
+        ) : (
+          <button className="prd-button" disabled={loading} onClick={() => setRefresh((value) => value + 1)}>
+            刷新班级
+          </button>
+        )}
       </div>
       {error && (
         <div className="prd-error" role="alert">
@@ -170,7 +172,7 @@ export default function Classes({ workspace = 'practice' }: { workspace?: 'pract
           {notice}
         </div>
       )}
-      {!teaching && (
+      {!teaching && !selectedId && (
         <section className="prd-panel" aria-label="加入班级">
           <h2>加入班级</h2>
           <div className="prd-toolbar">
@@ -202,7 +204,7 @@ export default function Classes({ workspace = 'practice' }: { workspace?: 'pract
         </section>
       )}
       {loading && <p role="status">正在加载班级…</p>}
-      {data && !teaching && (
+      {data && !teaching && !selectedId && (
         <section className="prd-panel">
           <h2>已加入的班级</h2>
           {!data.joined.length && <p className="prd-muted">尚未加入班级，请向教师获取邀请码。</p>}
@@ -225,7 +227,7 @@ export default function Classes({ workspace = 'practice' }: { workspace?: 'pract
           当前账号没有教师管理权限，请联系管理员。
         </p>
       )}
-      {data && teaching && data.canTeach && (
+      {data && teaching && data.canTeach && !selectedId && (
         <>
           <section className="prd-panel">
             <div className="prd-split">
@@ -343,7 +345,7 @@ export default function Classes({ workspace = 'practice' }: { workspace?: 'pract
           {current && (
             <>
               <h2>班级详情：{current.name}</h2>
-              <p>{current.description}</p>
+              {current.description && <p className="prd-muted">{current.description}</p>}
               {current.archivedAt && <p className="prd-muted">已归档，暂停加入。</p>}
               {canManage && (
                 <>
@@ -592,9 +594,6 @@ export default function Classes({ workspace = 'practice' }: { workspace?: 'pract
               onClick={() => setRefresh((value) => value + 1)}
             >
               刷新详情
-            </button>{' '}
-            <button className="prd-button" onClick={() => selectClass('')}>
-              关闭详情
             </button>
           </div>
         </section>

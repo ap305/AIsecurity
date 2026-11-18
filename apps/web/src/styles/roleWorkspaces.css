@@ -22,15 +22,36 @@
   }
 }
 @media (max-width: 640px) {
-  html:root {
-    --topbar-height: 104px;
+  .app-layout {
+    --topbar-height: 90px;
   }
-  .app-topbar {
-    flex-wrap: wrap;
+  .app-layout .app-topbar {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: 48px 42px;
+    gap: 0 8px;
+    padding-inline: 12px;
   }
-  .topbar-nav.workspace-switch {
-    order: 3;
-    width: 100%;
+  .app-layout .topbar-account {
+    grid-area: 1 / 2;
+    justify-content: flex-end;
+  }
+  .app-layout .topbar-nav.workspace-switch {
+    grid-area: 2 / 1 / 3 / -1;
+    gap: 6px;
+    align-self: start;
+  }
+  .app-layout .workspace-switch a {
+    padding: 7px 12px;
+  }
+  .app-layout:has(.workspace-switch > a:only-child) {
+    --topbar-height: 50px;
+  }
+  .app-layout:has(.workspace-switch > a:only-child) .app-topbar {
+    grid-template-rows: 1fr;
+  }
+  .app-layout .workspace-switch:has(> a:only-child) {
+    display: none;
   }
   .topbar-account .topbar-user-badge {
     display: inline-flex;

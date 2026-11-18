@@ -36,6 +36,7 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const adversarial = category === 'adversarial'
   useEffect(() => {
     let cancelled = false
@@ -101,6 +102,9 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
   const scored = libraryQuestions.filter((q) => q.myScore != null).length
   const resetParams = resetHallFilters(params, category)
   const hasFilters = params.toString() !== resetParams.toString()
+  const filterCount = ['q', 'difficulty', 'kind', 'state', 'group', 'scenario', 'role'].filter(
+    (name) => params.get(name) && params.get(name) !== resetParams.get(name),
+  ).length
   const select = (name: string, label: string, choices: Record<string, string>) => (
     <label className="hall-filter">
       <span>{label}</span>
@@ -120,7 +124,7 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
     </label>
   )
   return (
-    <div className="prd-page question-hall">
+    <div className="prd-page question-hall" data-filters-open={filtersOpen}>
       <header className="hall-heading">
         <div>
           <div className="hall-eyebrow">{adversarial ? '攻防训练' : '基础练习'}</div>
@@ -155,6 +159,16 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
         </dl>
       </header>
       <div className="hall-toolbar">
+        <button
+          type="button"
+          className="prd-button hall-filter-toggle"
+          aria-controls="hall-filters"
+          aria-expanded={filtersOpen}
+          onClick={() => setFiltersOpen((open) => !open)}
+        >
+          {filtersOpen ? '收起筛选' : '搜索与筛选'}
+          {filterCount > 0 && `（${filterCount}）`}
+        </button>
         <nav className="hall-library-tabs" aria-label="选择题库类型">
           {[
             { to: '/', label: '基础题', active: !adversarial },
@@ -183,50 +197,52 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
           {loading ? '加载中…' : '刷新题库'}
         </button>
       </div>
-      {adversarial && scenarios.length > 0 && (
-        <div className="hall-scenarios" aria-label="攻防场景">
-          <button
-            className={!params.get('scenario') ? 'selected' : ''}
-            aria-pressed={!params.get('scenario')}
-            onClick={() => updateFilter('scenario', '')}
-          >
-            全部场景
-          </button>
-          {scenarios
-            .filter((s) => !params.get('group') || s.group === params.get('group'))
-            .map((s) => (
-              <button
-                key={s.id}
-                className={params.get('scenario') === s.id ? 'selected' : ''}
-                aria-pressed={params.get('scenario') === s.id}
-                onClick={() => updateFilter('scenario', s.id)}
-              >
-                {s.title}
-              </button>
-            ))}
-        </div>
-      )}
-      <section className="hall-controls" aria-label="筛选题目">
-        <label className="hall-search">
-          <span>搜索</span>
-          <input
-            className="prd-input"
-            aria-label="搜索题号、题目或场景"
-            placeholder="搜索题号、题目或场景…"
-            value={params.get('q') || ''}
-            onChange={(e) => updateFilter('q', e.target.value)}
-          />
-        </label>
-        {select('difficulty', '难度', difficulties)}
-        {select('kind', '题型', questionKinds)}
-        {select('state', '状态', attemptStates)}
-        {adversarial ? (
-          <>
-            {select('group', '领域', Object.fromEntries(groups.map((g) => [g, g])))}
-            {select('role', '角色', { attack: '攻击', defense: '防御' })}
-          </>
-        ) : null}
-      </section>
+      <div id="hall-filters">
+        {adversarial && scenarios.length > 0 && (
+          <div className="hall-scenarios" aria-label="攻防场景">
+            <button
+              className={!params.get('scenario') ? 'selected' : ''}
+              aria-pressed={!params.get('scenario')}
+              onClick={() => updateFilter('scenario', '')}
+            >
+              全部场景
+            </button>
+            {scenarios
+              .filter((s) => !params.get('group') || s.group === params.get('group'))
+              .map((s) => (
+                <button
+                  key={s.id}
+                  className={params.get('scenario') === s.id ? 'selected' : ''}
+                  aria-pressed={params.get('scenario') === s.id}
+                  onClick={() => updateFilter('scenario', s.id)}
+                >
+                  {s.title}
+                </button>
+              ))}
+          </div>
+        )}
+        <section className="hall-controls" aria-label="筛选题目">
+          <label className="hall-search">
+            <span>搜索</span>
+            <input
+              className="prd-input"
+              aria-label="搜索题号、题目或场景"
+              placeholder="搜索题号、题目或场景…"
+              value={params.get('q') || ''}
+              onChange={(e) => updateFilter('q', e.target.value)}
+            />
+          </label>
+          {select('difficulty', '难度', difficulties)}
+          {select('kind', '题型', questionKinds)}
+          {select('state', '状态', attemptStates)}
+          {adversarial ? (
+            <>
+              {select('group', '领域', Object.fromEntries(groups.map((g) => [g, g])))}
+              {select('role', '角色', { attack: '攻击', defense: '防御' })}
+            </>
+          ) : null}
+        </section>
+      </div>
       <div className="hall-table-heading">
         <span>{loading ? '正在加载题库…' : error ? '题库加载失败' : `${filtered.length} 道题目`}</span>
         <div>
@@ -257,7 +273,12 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
           </button>
         </div>
       )}
-      <div className="prd-panel prd-table-wrap hall-table-panel">
+      <div
+        className="prd-panel prd-table-wrap hall-table-panel"
+        role="region"
+        aria-label="题目列表，可横向滚动"
+        tabIndex={0}
+      >
         {loading ? (
           <div className="prd-loading">正在加载题目…</div>
         ) : (
