@@ -14,18 +14,18 @@ import {
   getTeachingGrant,
   setTeachingGrant,
   exportClassrooms,
+  classroomCapabilities,
+  getClassroomScores,
 } from '../services/classrooms.js'
 
 const router = Router()
 function fail(res: Response, error: unknown) {
   const status = error instanceof RequestError ? error.status : 500
-  res
-    .status(status)
-    .json({
-      code: error instanceof AuthError ? error.code : status * 100,
-      message: error instanceof RequestError ? error.message : '班级服务暂不可用，请稍后重试',
-      data: null,
-    })
+  res.status(status).json({
+    code: error instanceof AuthError ? error.code : status * 100,
+    message: error instanceof RequestError ? error.message : '班级服务暂不可用，请稍后重试',
+    data: null,
+  })
 }
 function json(work: (req: Request) => Promise<unknown>) {
   return async (req: Request, res: Response) => {
@@ -41,6 +41,14 @@ router.get(
   '/classrooms',
   json((req) => listClassrooms(authPayload(req))),
 )
+router.get(
+  '/classrooms/capabilities',
+  json((req) => classroomCapabilities(authPayload(req))),
+)
+router.get(
+  '/classrooms/:id/scores',
+  json((req) => getClassroomScores(authPayload(req), req.params.id, req.query)),
+)
 router.post(
   '/classrooms',
   json((req) => createClassroom(authPayload(req), req.body)),
@@ -52,7 +60,7 @@ router.post(
 router.post('/classrooms/export', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store')
   try {
-    const file = await exportClassrooms(authPayload(req), req.body?.classroomIds)
+    const file = await exportClassrooms(authPayload(req), req.body?.classroomIds, req.body?.filters)
     res.setHeader('Content-Type', file.contentType)
     res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`)
     res.setHeader('X-Content-Type-Options', 'nosniff')

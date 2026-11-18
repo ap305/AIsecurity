@@ -412,10 +412,17 @@ export async function userByPayload(payload: TokenPayload | null, allowPasswordC
   return toPublicUser(row as UserRow, security)
 }
 
-export async function listPublicUsers(): Promise<PublicUser[]> {
+export async function listPublicUsers(): Promise<(PublicUser & { teachingGranted: boolean; canTeach: boolean })[]> {
   const rows = await prisma.user.findMany({ where: { accountStatus: { not: 'deleted' } }, orderBy: { createdAt: 'asc' } })
   const security = new Map((await prisma.userSecurity.findMany({ where: { userId: { in: rows.map((row) => row.id) } } })).map((row) => [row.userId, row]))
-  return rows.map((row) => toPublicUser(row, security.get(row.id)))
+  const grants = new Set((await prisma.teacherGrant.findMany({
+    where: { userId: { in: rows.map((row) => row.id) } }, select: { userId: true },
+  })).map((row) => row.userId))
+  return rows.map((row) => ({
+    ...toPublicUser(row, security.get(row.id)),
+    teachingGranted: grants.has(row.id),
+    canTeach: row.accountStatus === 'active' && (row.role === 'admin' || grants.has(row.id)),
+  }))
 }
 
 function invalidSession(): AuthError {

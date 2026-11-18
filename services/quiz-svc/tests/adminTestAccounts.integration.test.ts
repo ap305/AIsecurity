@@ -735,3 +735,31 @@ test('bulk student clearing preserves test accounts deleted tombstones usernames
   )
   assert.equal((await request('/admin/users', 'POST', account('deletedtest'))).status, 409)
 })
+
+test('admin user JSON separates retained teaching grants from effective access without changing scores', async () => {
+  const user = await create('teacherlistfixture')
+  await history(user.id)
+  const before = await fingerprint()
+  const list = async () => {
+    const result = await request('/admin/users')
+    assert.equal(result.status, 200)
+    assert.equal(result.json.code, 0)
+    return result.json.data as Array<{ id: string; role: string; teachingGranted: boolean; canTeach: boolean }>
+  }
+  let rows = await list()
+  assert.equal(rows.find((row) => row.id === user.id)?.teachingGranted, false)
+  assert.equal(rows.find((row) => row.id === 'fixture-admin')?.canTeach, true)
+  assert.equal((await request(`/admin/users/${user.id}/teaching`, 'PUT', { enabled: true })).status, 200)
+  rows = await list()
+  assert.deepEqual(rows.filter((row) => row.id === user.id).map(({ role, teachingGranted, canTeach }) => ({ role, teachingGranted, canTeach })), [
+    { role: 'student', teachingGranted: true, canTeach: true },
+  ])
+  assert.equal((await request(`/admin/users/${user.id}/status`, 'PUT', { status: 'disabled' })).status, 200)
+  rows = await list()
+  assert.equal(rows.find((row) => row.id === user.id)?.teachingGranted, true)
+  assert.equal(rows.find((row) => row.id === user.id)?.canTeach, false)
+  assert.equal((await request(`/admin/users/${user.id}/teaching`, 'PUT', { enabled: false })).status, 200)
+  rows = await list()
+  assert.equal(rows.find((row) => row.id === user.id)?.teachingGranted, false)
+  assert.equal(await fingerprint(), before)
+})

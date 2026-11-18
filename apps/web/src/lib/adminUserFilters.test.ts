@@ -143,3 +143,28 @@ test('the same filters reflect a status refresh and resetting restores all visib
     'test-active',
   ])
 })
+
+test('teacher filtering follows grants, preserves disabled teachers, and leaves student scores untouched', () => {
+  const teacher = { ...users[1], teachingGranted: true, canTeach: true }
+  const disabledTeacher = { ...users[2], teachingGranted: true, canTeach: false }
+  const rows = [users[0], teacher, disabledTeacher, users[3]]
+  assert.deepEqual(ids(filterAdminUsers(rows, { ...defaultAdminUserFilters(), role: 'teacher' })), [
+    'alice',
+    'test-disabled',
+  ])
+  assert.deepEqual(ids(filterAdminUsers(rows, { ...defaultAdminUserFilters(), role: 'student' })), [
+    'test-active',
+  ])
+  assert.deepEqual(
+    ids(filterAdminUsers(rows, { ...defaultAdminUserFilters(), role: 'teacher', status: 'disabled' })),
+    ['test-disabled'],
+  )
+  const revoked = rows.map((row) =>
+    row.id === 'alice' ? { ...row, teachingGranted: false, canTeach: false } : row,
+  )
+  assert.deepEqual(ids(filterAdminUsers(revoked, { ...defaultAdminUserFilters(), role: 'teacher' })), [
+    'test-disabled',
+  ])
+  assert.equal(teacher.role, 'student')
+  assert.equal(teacher.tier, users[1].tier)
+})

@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { SolutionCards } from './QuestionSolutions'
+import { SolutionCards, solutionSourceTabs } from './QuestionSolutions'
 import type { QuestionSolution } from '../lib/questionSolutions'
 
 const solution: QuestionSolution = {
@@ -38,9 +38,14 @@ test('public code is inert text, Markdown has no HTML or remote images, and zero
   assert.match(html, /撤回公开/)
 })
 test('empty tabs explain missing standard and explicit consent for highest public solutions', () => {
-  assert.match(render([], 'standard'), /尚未发布标准题解/)
+  assert.match(render([], 'standard'), /尚未发布标准与教师讲解/)
   assert.match(render([], 'top'), /主动公开.*最高/)
-  assert.match(render([], 'user'), /尚无用户题解/)
+  assert.match(render([], 'user'), /尚无学生题解/)
+  assert.deepEqual(solutionSourceTabs, [
+    ['standard', '标准与教师讲解'],
+    ['user', '学生题解'],
+    ['top', '公开题解最高分'],
+  ])
 })
 test('manual standard reference cannot imply the actual evaluator and distinguishes reference role', () => {
   const html = render(

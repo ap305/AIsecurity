@@ -3,6 +3,26 @@ import assert from 'node:assert/strict'
 import { classroomsApi } from './classrooms'
 import { setAuthToken, subscribeAuthFailures } from './api'
 
+test('capabilities and score queries use encoded paths and explicit current filters', async (t) => {
+  const calls: { url: string; body?: unknown }[] = []
+  t.mock.method(globalThis, 'fetch', async (url: RequestInfo | URL, options?: RequestInit) => {
+    calls.push({ url: String(url), ...(options?.body ? { body: JSON.parse(String(options.body)) } : {}) })
+    if (options?.method === 'POST') return new Response('csv', { headers: { 'Content-Type': 'text/csv' } })
+    return Response.json({ code: 0, message: 'ok', data: { canTeach: true } })
+  })
+  assert.deepEqual(await classroomsApi.capabilities(), { canTeach: true })
+  await classroomsApi.scores('class/1', { search: '王 & 张', category: 'attack', questionId: 'q/1', page: 2 })
+  const query = new URL(calls[1].url, 'http://test')
+  assert.equal(calls[0].url, '/api/classrooms/capabilities')
+  assert.equal(query.pathname, '/api/classrooms/class%2F1/scores')
+  assert.equal(query.searchParams.get('search'), '王 & 张')
+  assert.equal(query.searchParams.get('category'), 'attack')
+  assert.equal(query.searchParams.get('page'), '2')
+  const filters = { search: '王', questionId: 'q/1', category: 'basic' as const }
+  await classroomsApi.export(['c1'], filters)
+  assert.deepEqual(calls[2].body, { classroomIds: ['c1'], filters })
+})
+
 test('export reports JSON authorization failures instead of downloading an error document', async (t) => {
   t.mock.method(globalThis, 'fetch', async () =>
     Response.json({ code: 40300, message: '无权导出所选班级', data: null }, { status: 403 }),

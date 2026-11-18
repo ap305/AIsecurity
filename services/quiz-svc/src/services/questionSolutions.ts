@@ -269,6 +269,7 @@ export async function listQuestionSolutions(
     async (db) => {
       const viewer = await actor(db, identity)
       const q = await publishedQuestion(db, questionId)
+      const canPublishStandard = await canTeach(identity.uid, db)
       // Rank metadata across all public candidates; load large code fields only after pagination/top selection.
       const rows = await db.questionSolution.findMany({
         where: { questionId, questionVersion: q.revision, published: true },
@@ -343,7 +344,9 @@ export async function listQuestionSolutions(
             scoring.get(r.sourceSubmissionId || ''),
             bySource.get(r.sourceSubmissionId || ''),
           ),
-          canWithdraw: viewer.role === 'admin' || r.authorId === identity.uid,
+          canWithdraw:
+            (viewer.role === 'admin' || r.authorId === identity.uid) &&
+            (r.kind !== 'standard' || canPublishStandard),
         }
       }
       const reference = normalizeCategory(q.category) === 'adversarial' ? await publishedReference(q) : null
@@ -355,7 +358,7 @@ export async function listQuestionSolutions(
           category: normalizeCategory(q.category),
           role: q.role,
         },
-        canPublishStandard: await canTeach(identity.uid, db),
+        canPublishStandard,
         standard: [...(reference?.item ? [reference.item] : []), ...selectedStandard.map(render)],
         standardNotice: reference?.notice ?? '',
         user: selectedUsers.map(render),
@@ -401,6 +404,96 @@ export async function listSolutionCandidates(questionId: string, identity: Actor
   )
 }
 
+export async function listTeachingSolutions(
+  identity: Actor,
+  input: { page?: unknown; search?: unknown; scope?: unknown } = {},
+) {
+  const page = pageNumber(input.page, 1, '页码')
+  const pageSize = 20
+  const skip = (page - 1) * pageSize
+  if (!Number.isSafeInteger(skip) || skip > 2147483647) throw new RequestError('页码超出支持范围')
+  if (input.scope !== undefined && input.scope !== 'mine') throw new RequestError('工作台仅显示我的讲解')
+  const search = text(input.search ?? '', '搜索词', 100).trim()
+  return prisma.$transaction(
+    async (db) => {
+      await actor(db, identity)
+      if (!(await canTeach(identity.uid, db))) throw new RequestError('需要教师或管理员权限', 403)
+      const questionSelect = {
+        id: true,
+        title: true,
+        revision: true,
+        category: true,
+        role: true,
+        status: true,
+      } as const
+      const questions = await db.question.findMany({
+        where: { status: 'published' },
+        select: questionSelect,
+        orderBy: [{ title: 'asc' }, { id: 'asc' }],
+      })
+      const matchingQuestions = search
+        ? await db.question.findMany({
+            where: { title: { contains: search, mode: 'insensitive' } },
+            select: { id: true },
+          })
+        : []
+      const where: Prisma.QuestionSolutionWhereInput = {
+        authorId: identity.uid,
+        kind: 'standard',
+        ...(search
+          ? {
+              OR: [
+                { title: { contains: search, mode: 'insensitive' } },
+                { questionId: { in: matchingQuestions.map((q) => q.id) } },
+              ],
+            }
+          : {}),
+      }
+      const [rows, total] = await Promise.all([
+        db.questionSolution.findMany({
+          where,
+          orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+          skip,
+          take: pageSize,
+        }),
+        db.questionSolution.count({ where }),
+      ])
+      const linked = await db.question.findMany({
+        where: { id: { in: rows.map((row) => row.questionId) } },
+        select: questionSelect,
+      })
+      const byQuestion = new Map(linked.map((q) => [q.id, q]))
+      return {
+        scope: 'mine' as const,
+        visibility: 'authenticated' as const,
+        questions: questions.map(({ status: _status, ...q }) => ({
+          ...q,
+          category: normalizeCategory(q.category),
+        })),
+        items: rows.map((row) => {
+          const q = byQuestion.get(row.questionId)
+          return {
+            id: row.id,
+            title: row.title,
+            explanation: row.explanation,
+            code: row.code,
+            questionId: row.questionId,
+            questionVersion: row.questionVersion,
+            referenceKind: row.referenceKind,
+            published: row.published,
+            createdAt: row.createdAt.toISOString(),
+            updatedAt: row.updatedAt.toISOString(),
+            question: q ? { ...q, category: normalizeCategory(q.category) } : null,
+            canEdit: q?.status === 'published' && q.revision === row.questionVersion,
+          }
+        }),
+        pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
+      }
+    },
+    { isolationLevel: 'RepeatableRead', timeout: 15000 },
+  )
+}
+
 async function assertPublicationCapacity(db: Db, q: Question, authorId: string, kind: string) {
   const where = { questionId: q.id, questionVersion: q.revision, published: true }
   if ((await db.questionSolution.count({ where: { ...where, authorId } })) >= 20)
@@ -421,6 +514,8 @@ export async function createQuestionSolution(questionId: string, identity: Actor
   return transaction(async (db) => {
     await actor(db, identity, true)
     const q = await publishedQuestion(db, questionId)
+    if (input.questionVersion !== undefined && input.questionVersion !== q.revision)
+      throw new RequestError('题目版本已变化，请刷新题目后重新编写并发布讲解', 409)
     if (kind === 'standard' && !(await canTeach(identity.uid, db)))
       throw new RequestError('仅教师或管理员可发布标准题解', 403)
     if (kind === 'standard' && input.sourceSubmissionId != null)
@@ -451,7 +546,11 @@ export async function createQuestionSolution(questionId: string, identity: Actor
 
 export async function updateQuestionSolution(id: string, identity: Actor, raw: unknown) {
   const input = inputObject(raw)
-  if (Object.keys(input).some((key) => !['title', 'explanation', 'code', 'published'].includes(key)))
+  if (
+    Object.keys(input).some(
+      (key) => !['title', 'explanation', 'code', 'published', 'expectedUpdatedAt'].includes(key),
+    )
+  )
     throw new RequestError('不支持修改题解来源或版本')
   return transaction(async (db) => {
     const viewer = await actor(db, identity, true)
@@ -461,6 +560,8 @@ export async function updateQuestionSolution(id: string, identity: Actor, raw: u
       throw new RequestError('不能修改他人的题解', 403)
     if (row.kind === 'standard' && !(await canTeach(identity.uid, db)))
       throw new RequestError('教师权限已撤销', 403)
+    if (input.expectedUpdatedAt !== undefined && input.expectedUpdatedAt !== row.updatedAt.toISOString())
+      throw new RequestError('讲解已被更新或撤回，请重新打开最新讲解后再修改', 409)
     const q = await publishedQuestion(db, row.questionId)
     if (q.revision !== row.questionVersion)
       throw new RequestError('题解属于旧版本，请在当前版本重新发布', 409)
@@ -492,6 +593,8 @@ export async function withdrawQuestionSolution(id: string, identity: Actor) {
     if (!row) throw new RequestError('题解不存在', 404)
     if (row.authorId !== identity.uid && viewer.role !== 'admin')
       throw new RequestError('不能撤回他人的题解', 403)
+    if (row.kind === 'standard' && !(await canTeach(identity.uid, db)))
+      throw new RequestError('教师权限已撤销', 403)
     await db.questionSolution.update({ where: { id }, data: { published: false } })
     return { id, published: false }
   })

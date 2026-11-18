@@ -2,12 +2,13 @@ import { useState, type FormEvent } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import type { UserRole } from '@ai-security/shared'
-import { passwordChangeHref, safeReturnTo } from '../lib/authSession'
+import { passwordChangeHref } from '../lib/authSession'
+import { loginWorkspaceDestination } from '../lib/roleNavigation'
 
 type RoleTab = { role: UserRole; label: string }
 
 const ROLE_TABS: RoleTab[] = [
-  { role: 'student', label: '学员登录' },
+  { role: 'student', label: '师生登录' },
   { role: 'admin', label: '管理员登录' },
 ]
 
@@ -15,7 +16,7 @@ export default function Login() {
   const { login, logoutNotice: sessionNotice } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  const returnTo = safeReturnTo(new URLSearchParams(location.search).get('returnTo'))
+  const requestedReturnTo = new URLSearchParams(location.search).get('returnTo')
   const logoutNotice = sessionNotice || (location.state as { logoutNotice?: string } | null)?.logoutNotice
 
   const [activeRole, setActiveRole] = useState<RoleTab>(ROLE_TABS[0])
@@ -38,6 +39,7 @@ export default function Login() {
     setLoading(true)
     try {
       const loggedIn = await login(username, password, activeRole.role)
+      const returnTo = loginWorkspaceDestination(requestedReturnTo, loggedIn.role)
       navigate(loggedIn.mustChangePassword ? passwordChangeHref(returnTo) : returnTo, { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : '登录失败')
@@ -170,7 +172,7 @@ export default function Login() {
         </button>
         {showRecoveryHelp && (
           <p role="status">
-            请联系授课老师或平台管理员，核验身份后人工恢复密码。手机验证和短信找回尚未开放。{' '}
+            请联系平台管理员，核验身份后人工恢复密码。教师授权不包含密码管理权限。手机验证和短信找回尚未开放。{' '}
             <Link to="/password-recovery">已绑定邮箱？查看邮箱找回</Link>
           </p>
         )}

@@ -3,12 +3,15 @@ import { lazy, Suspense } from 'react'
 import Topbar from './components/Topbar'
 import Sidebar from './components/Sidebar'
 import ProtectedRoute from './components/ProtectedRoute'
+import ProtectedTeachingRoute, { WorkspaceLanding } from './components/ProtectedTeachingRoute'
+import { TeachingProvider } from './contexts/TeachingContext'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import EmailVerification from './pages/EmailVerification'
 import PasswordRecovery from './pages/PasswordRecovery'
 import Classes from './pages/Classes'
 import QuestionSolutions from './pages/QuestionSolutions'
+import TeachingSolutions from './pages/TeachingSolutions'
 import ChangePassword from './pages/ChangePassword'
 import QuestionHall from './pages/QuestionHall'
 import Profile from './pages/Profile'
@@ -27,6 +30,9 @@ import TeacherLeaseManager from './pages/admin/TeacherLeaseManager'
 import AdminOperations from './pages/admin/AdminOperations'
 import GithubArchiveConfig from './pages/admin/GithubArchiveConfig'
 import beianIcon from './assets/beian-icon.png'
+import './styles/roleWorkspaces.css'
+import './styles/classrooms.css'
+import './styles/teachingSolutions.css'
 
 const SolveQuestion = lazy(() => import('./pages/SolveQuestion'))
 function SolveRoute() {
@@ -86,7 +92,7 @@ function AppLayout() {
 
 export default function App() {
   return (
-    <>
+    <TeachingProvider>
       <SiteFooter />
       <Routes>
         {/* Login / Register — no shell */}
@@ -107,7 +113,13 @@ export default function App() {
             <Route path="/arena/:questionId" element={<SolveRoute />} />
             <Route path="/leaderboard" element={<Leaderboard />} />
             <Route path="/profile" element={<Profile />} />
-            <Route path="/classes" element={<Classes />} />
+            <Route path="/classes" element={<Classes workspace="practice" />} />
+            <Route path="/workspace" element={<WorkspaceLanding />} />
+            <Route element={<ProtectedTeachingRoute />}>
+              <Route path="/teaching" element={<Classes workspace="teaching" />} />
+              <Route path="/teaching/classes/:classId" element={<Classes workspace="teaching" />} />
+              <Route path="/teaching/solutions" element={<TeachingSolutions />} />
+            </Route>
             <Route path="/achievements" element={<Achievements />} />
             <Route path="/help" element={<Help />} />
             <Route path="/llm-config" element={<Navigate to="/help" replace />} />
@@ -131,6 +143,6 @@ export default function App() {
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </>
+    </TeachingProvider>
   )
 }

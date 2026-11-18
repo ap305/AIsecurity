@@ -30,7 +30,17 @@ const thStyle: React.CSSProperties = {
   letterSpacing: 1,
 }
 
-export function TeachingGrantControl({ userId, displayName }: { userId: string; displayName: string }) {
+export function TeachingGrantControl({
+  userId,
+  displayName,
+  accountStatus = 'active',
+  onChanged,
+}: {
+  userId: string
+  displayName: string
+  accountStatus?: string
+  onChanged?: (enabled: boolean) => void
+}) {
   const [enabled, setEnabled] = useState<boolean | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -38,6 +48,8 @@ export function TeachingGrantControl({ userId, displayName }: { userId: string; 
   const [refresh, setRefresh] = useState(0)
   const pending = useRef(false)
   const alive = useRef(true)
+  const currentUser = useRef(userId)
+  currentUser.current = userId
   useEffect(() => {
     alive.current = true
     return () => {
@@ -65,25 +77,29 @@ export function TeachingGrantControl({ userId, displayName }: { userId: string; 
     }
   }, [userId, refresh])
   const save = async () => {
-    if (pending.current || enabled === null) return
+    if (pending.current || enabled === null || (!enabled && accountStatus !== 'active')) return
     pending.current = true
     setSaving(true)
     setError('')
     try {
       const result = await classroomsApi.setTeaching(userId, !enabled)
-      if (alive.current) setEnabled(result.enabled)
+      if (alive.current && currentUser.current === userId) {
+        setEnabled(result.enabled)
+        onChanged?.(result.enabled)
+      }
     } catch {
-      if (alive.current) setError('教师权限操作失败，请重试；原授权状态未确认改变。')
+      if (alive.current && currentUser.current === userId)
+        setError('教师权限操作失败，请重试；原授权状态未确认改变。')
     } finally {
       pending.current = false
-      if (alive.current) setSaving(false)
+      if (alive.current && currentUser.current === userId) setSaving(false)
     }
   }
   return (
     <section className="prd-panel" aria-label="教师权限">
       <h2>教师权限：{displayName}</h2>
       <p className="prd-muted">
-        教师可创建、管理自己的班级和发布标准题解。授权不改变学员身份和成绩；撤销后立即失去管理权限，班级、成员和成绩保留。
+        教师可创建、管理自己的班级和发布标准题解。授权不改变账号和成绩，也不授予密码管理权限；撤销后立即失去管理权限，班级、成员和成绩保留。
       </p>
       {loading ? (
         <p role="status">正在加载教师权限…</p>
@@ -95,7 +111,12 @@ export function TeachingGrantControl({ userId, displayName }: { userId: string; 
           {error}
         </p>
       )}
-      <button className="prd-button" disabled={loading || saving || enabled === null} onClick={save}>
+      {accountStatus !== 'active' && <p role="status">账号已停用；授权会保留，启用账号后才能新增授权。</p>}
+      <button
+        className="prd-button"
+        disabled={loading || saving || enabled === null || (!enabled && accountStatus !== 'active')}
+        onClick={save}
+      >
         {saving ? '保存中…' : enabled ? '撤销教师权限' : '授予教师权限'}
       </button>{' '}
       <button
@@ -199,7 +220,7 @@ export default function UserManager() {
     try {
       const created = await createTestAccount(createForm)
       setCreateForm({ username: '', displayName: '', password: '', school: '' })
-      setNotice(`测试账号 ${created.username} 创建成功。请使用学员入口登录，管理员会话保持不变。`)
+      setNotice(`测试账号 ${created.username} 创建成功。请使用师生入口登录，管理员会话保持不变。`)
       await fetchUsers()
     } catch (e) {
       setCreateError(e instanceof Error ? e.message : '创建测试账号失败，请重试')
@@ -448,6 +469,25 @@ export default function UserManager() {
             key={teachingUser.id}
             userId={teachingUser.id}
             displayName={teachingUser.displayName}
+            accountStatus={
+              users.find((u) => u.id === teachingUser.id)?.accountStatus ?? teachingUser.accountStatus
+            }
+            onChanged={(enabled) => {
+              setUsers((current) =>
+                current.map((u) =>
+                  u.id === teachingUser.id
+                    ? {
+                        ...u,
+                        teachingGranted: enabled,
+                        canTeach: enabled && u.accountStatus === 'active',
+                      }
+                    : u,
+                ),
+              )
+              setNotice(
+                `${teachingUser.displayName} 的教师权限已${enabled ? '授予' : '撤销'}，班级与成绩保留。`,
+              )
+            }}
           />
           <button className="prd-button" onClick={() => setTeachingUser(null)}>
             关闭教师权限
@@ -589,7 +629,8 @@ export default function UserManager() {
             >
               <option value="all">全部角色</option>
               <option value="admin">管理员</option>
-              <option value="student">学员</option>
+              <option value="teacher">教师（已授权）</option>
+              <option value="student">学生（未授权）</option>
             </select>
           </div>
           <div>
@@ -685,6 +726,7 @@ export default function UserManager() {
                 <th style={thStyle}>姓名</th>
                 <th style={thStyle}>学校</th>
                 <th style={thStyle}>角色</th>
+                <th style={thStyle}>教学授权</th>
                 <th style={thStyle}>账号类型</th>
                 <th style={thStyle}>状态</th>
                 <th style={thStyle}>注册时间</th>
@@ -719,8 +761,17 @@ export default function UserManager() {
                         color: u.role === 'admin' ? 'var(--danger)' : 'var(--brand-cyan)',
                       }}
                     >
-                      {u.role === 'admin' ? '管理员' : '学员'}
+                      {u.role === 'admin' ? '管理员' : u.teachingGranted ? '教师' : '学生'}
                     </span>
+                  </td>
+                  <td style={{ padding: '12px 16px', whiteSpace: 'nowrap', fontSize: 12 }}>
+                    {u.role === 'admin'
+                      ? '管理员权限'
+                      : u.teachingGranted
+                        ? u.accountStatus === 'active'
+                          ? '已授权'
+                          : '已授权（账号停用）'
+                        : '未授权'}
                   </td>
                   <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
                     <span

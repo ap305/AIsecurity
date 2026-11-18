@@ -1,19 +1,15 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useState } from 'react'
-import { TIER_MAP } from '@ai-security/shared'
 import { useAuth } from '../contexts/AuthContext'
-
-const NAV_ITEMS = [
-  { path: '/', label: '任务大厅' },
-  { path: '/arena', label: '对战大厅' },
-  { path: '/leaderboard', label: '排行榜' },
-]
+import { useTeaching } from '../contexts/TeachingContext'
+import { workspaceRoleLabel } from '../lib/roleNavigation'
 
 export default function Topbar() {
   const location = useLocation()
   const navigate = useNavigate()
   const { user, isAuthenticated, isAdmin, logout } = useAuth()
-  const navItems = NAV_ITEMS
+  const { canTeach, status } = useTeaching()
+  const teachingSpace = location.pathname.startsWith('/teaching')
   const [loggingOut, setLoggingOut] = useState(false)
 
   const handleLogout = async () => {
@@ -63,16 +59,15 @@ export default function Topbar() {
         </span>
       </Link>
 
-      <nav className="topbar-nav" aria-label="快捷导航">
-        {navItems.map((item) => {
-          const isActive =
-            item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path)
-          return (
-            <Link key={item.path} to={item.path} aria-current={isActive ? 'page' : undefined}>
-              {item.label}
-            </Link>
-          )
-        })}
+      <nav className="topbar-nav workspace-switch" aria-label="空间切换">
+        <Link to="/" aria-current={!teachingSpace ? 'page' : undefined}>
+          练习空间
+        </Link>
+        {canTeach && (
+          <Link to="/teaching" aria-current={teachingSpace ? 'page' : undefined}>
+            教学空间
+          </Link>
+        )}
       </nav>
 
       {isAuthenticated && user ? (
@@ -86,12 +81,10 @@ export default function Topbar() {
           <span
             className="topbar-user-badge"
             style={{
-              color: isAdmin ? 'var(--tier-gold)' : (TIER_MAP[user.tier]?.color ?? 'var(--tier-bronze)'),
+              color: isAdmin ? 'var(--tier-gold)' : 'var(--brand-cyan)',
             }}
           >
-            {isAdmin
-              ? '管理员'
-              : `${TIER_MAP[user.tier]?.icon ?? ''} ${TIER_MAP[user.tier]?.label ?? user.tier}`}
+            {isAdmin || status === 'ready' ? workspaceRoleLabel(user.role, canTeach) : '师生账号'}
           </span>
           <button className="topbar-logout" onClick={handleLogout} disabled={loggingOut}>
             {loggingOut ? '退出中…' : '退出'}

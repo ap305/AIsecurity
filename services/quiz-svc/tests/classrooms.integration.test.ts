@@ -278,6 +278,9 @@ test('CSV and multi-class ZIP preserve current scores, zeros, IDs and safe cells
       role: 'attack',
     })
   await makeQuestion('unsubmitted')
+  await makeQuestion('legacy-basic', { category: 'programming' })
+  await makeQuestion('legacy-defense', { category: 'security', role: 'defense' })
+  const queued = await makeQuestion('queued-question')
   const archived = await makeQuestion('archived-private', { status: 'archived' })
   const submit = async (q: typeof best, score: number, extra = {}) =>
     prisma.submission.create({
@@ -314,6 +317,12 @@ test('CSV and multi-class ZIP preserve current scores, zeros, IDs and safe cells
     },
   })
   await submit(best, 100, { questionVersion: 0 })
+  await submit(best, 0, {
+    status: 'failed',
+    result: JSON.stringify({ evaluationStatus: 'system_error', internal: 'PRIVATE_RESULT' }),
+    createdAt: new Date('2030-01-01T00:00:00Z'),
+  })
+  await submit(queued, 0, { status: 'queued' })
   await submit(zero, 0)
   await submit(outdated, 99, { questionVersion: 1 })
   const archivedSubmission = await submit(archived, 20)
@@ -365,11 +374,73 @@ test('CSV and multi-class ZIP preserve current scores, zeros, IDs and safe cells
       achievedAt: new Date(),
     },
   })
+  await submit(arena, 0, {
+    status: 'completed',
+    result: JSON.stringify({ qualified: false, baselinePassed: false, internal: 'PRIVATE_RESULT' }),
+    createdAt: new Date('2030-01-01T00:00:00Z'),
+  })
   const before = {
     scores: await prisma.basicScore.findMany(),
     arena: await prisma.arenaScore.findMany(),
     submissions: await prisma.submission.count(),
   }
+  const scores = await request(`/classrooms/${a.id}/scores?pageSize=1&search=student`)
+  assert.equal(scores.status, 200)
+  assert.equal(scores.response.headers.get('cache-control'), 'no-store')
+  assert.equal(scores.body.data.total, 1)
+  assert.equal(scores.body.data.pageSize, 1)
+  const student = scores.body.data.students[0]
+  assert.equal(student.userId, 'student')
+  assert.equal(student.basicTotalScore, 90)
+  assert.equal(student.scores.find((s: any) => s.questionId === best.id).score, 70)
+  assert.equal(student.scores.find((s: any) => s.questionId === best.id).latestSubmission.status, 'failed')
+  assert.equal(
+    student.scores.find((s: any) => s.questionId === best.id).latestSubmission.outcome,
+    'system_error',
+  )
+  assert.equal(student.scores.find((s: any) => s.questionId === zero.id).score, 0)
+  assert.equal(student.scores.find((s: any) => s.questionId === 'unsubmitted').state, 'not_submitted')
+  assert.equal(student.scores.find((s: any) => s.questionId === arena.id).score, 25)
+  assert.equal(
+    student.scores.find((s: any) => s.questionId === arena.id).latestSubmission.outcome,
+    'baseline_failed',
+  )
+  assert.equal(
+    student.scores.find((s: any) => s.questionId === queued.id).latestSubmission.outcome,
+    'pending',
+  )
+  assert.doesNotMatch(JSON.stringify(scores.body), /PRIVATE_|testaccount|configSnapshot|filePath/)
+  const filtered = await request(`/classrooms/${a.id}/scores?category=basic&questionId=${zero.id}`)
+  assert.deepEqual(
+    filtered.body.data.questions.map((q: any) => q.id),
+    [zero.id],
+  )
+  assert.equal(filtered.body.data.total, 2)
+  assert.equal(filtered.body.data.students.find((s: any) => s.userId === 'another').scores[0].score, null)
+  assert.ok(
+    (await request(`/classrooms/${a.id}/scores?category=basic`)).body.data.questions.some(
+      (q: any) => q.id === 'legacy-basic',
+    ),
+  )
+  assert.deepEqual(
+    (await request(`/classrooms/${a.id}/scores?category=attack`)).body.data.questions.map((q: any) => q.id),
+    [arena.id],
+  )
+  assert.deepEqual(
+    (await request(`/classrooms/${a.id}/scores?category=defense`)).body.data.questions.map((q: any) => q.id),
+    ['legacy-defense'],
+  )
+  assert.equal((await request(`/classrooms/${a.id}/scores?pageSize=500`)).body.data.pageSize, 100)
+  for (const query of ['page=0', 'pageSize=-1', 'category=unknown', 'search[x]=a', 'questionId[x]=a'])
+    assert.equal((await request(`/classrooms/${a.id}/scores?${query}`)).status, 400)
+  const filteredExport = await request('/classrooms/export', 'teacher', 'POST', {
+    classroomIds: [a.id],
+    filters: { search: 'student', questionId: zero.id, category: 'basic' },
+  })
+  assert.equal(filteredExport.status, 200)
+  assert.match(filteredExport.bytes.toString(), /basic-zero/)
+  assert.match(filteredExport.bytes.toString(), /"0","90"/)
+  assert.doesNotMatch(filteredExport.bytes.toString(), /basic-best|another|testaccount/)
   const single = await request('/classrooms/export', 'teacher', 'POST', { classroomIds: [a.id] })
   assert.equal(single.status, 200)
   assert.equal(single.bytes.subarray(0, 3).toString('hex'), 'efbbbf')
@@ -410,6 +481,37 @@ test('CSV and multi-class ZIP preserve current scores, zeros, IDs and safe cells
     },
     before,
   )
+})
+
+test('capabilities and score reads recheck grant, ownership and current membership without exposing student data', async () => {
+  assert.equal((await request('/classrooms/capabilities', 'anonymous')).status, 401)
+  assert.deepEqual((await request('/classrooms/capabilities', 'student')).body.data, { canTeach: false })
+  assert.deepEqual((await request('/classrooms/capabilities', 'teacher')).body.data, { canTeach: true })
+  assert.deepEqual((await request('/classrooms/capabilities', 'admin')).body.data, { canTeach: true })
+  const classroom = await create('score access')
+  await prisma.classMembership.create({ data: { classroomId: classroom.id, userId: 'student' } })
+  for (const user of ['student', 'another', 'otherteacher'])
+    assert.equal((await request(`/classrooms/${classroom.id}/scores`, user)).status, 403)
+  assert.equal((await request(`/classrooms/${classroom.id}/scores`, 'admin')).status, 200)
+  await request('/admin/users/teacher/teaching', 'admin', 'PUT', { enabled: false })
+  try {
+    assert.deepEqual((await request('/classrooms/capabilities')).body.data, { canTeach: false })
+    assert.equal((await request(`/classrooms/${classroom.id}/scores`)).status, 403)
+    assert.equal(
+      (
+        await request('/classrooms/export', 'teacher', 'POST', {
+          classroomIds: [classroom.id],
+          filters: { search: 'student' },
+        })
+      ).status,
+      403,
+    )
+  } finally {
+    await request('/admin/users/teacher/teaching', 'admin', 'PUT', { enabled: true })
+  }
+  assert.equal((await request(`/classrooms/${classroom.id}/scores`)).body.data.total, 1)
+  await request(`/classrooms/${classroom.id}/members/student`, 'teacher', 'DELETE')
+  assert.equal((await request(`/classrooms/${classroom.id}/scores`)).body.data.total, 0)
 })
 
 test('teaching grants and revocations are auditable while a demoted admin cannot grant access', async () => {

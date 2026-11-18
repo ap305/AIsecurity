@@ -4,9 +4,9 @@ import type { Classroom, Prisma } from '@prisma/client'
 import { prisma } from '../lib/db.js'
 import { hasValidSession, type TokenPayload } from '../lib/auth.js'
 import { AuthError } from '../lib/authPassword.js'
-import { RequestError } from '../lib/prdContract.js'
+import { normalizeCategory, pageNumber, parseJson, RequestError } from '../lib/prdContract.js'
 import { transaction } from '../lib/transaction.js'
-import { questionScoresForStudents } from './adminStudentScores.js'
+import { questionScoresForStudents, type AdminStudentQuestionScore } from './adminStudentScores.js'
 
 type Db = Prisma.TransactionClient
 type Session = TokenPayload | null
@@ -97,6 +97,12 @@ export async function listClassrooms(payload: Session) {
       }),
     ])
     return { canTeach: teaching, owned, joined: joined.map(summary) }
+  })
+}
+export async function classroomCapabilities(payload: Session) {
+  return read(async (db) => {
+    const user = await actor(db, payload)
+    return { canTeach: await canTeach(user.id, db) }
   })
 }
 export async function createClassroom(payload: Session, input: unknown) {
@@ -264,7 +270,174 @@ function csvLine(values: unknown[]) {
   return values.map(csvCell).join(',')
 }
 
-export async function exportClassrooms(payload: Session, ids: unknown) {
+function scoreFilters(input: unknown = {}) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new RequestError('成绩筛选条件无效')
+  const { search, questionId, category } = input as Record<string, unknown>
+  if (search !== undefined && (typeof search !== 'string' || search.length > 100))
+    throw new RequestError('学生搜索关键词最多 100 个字符')
+  if (questionId !== undefined && (typeof questionId !== 'string' || questionId.length > 100))
+    throw new RequestError('题目筛选无效')
+  if (
+    category !== undefined &&
+    (typeof category !== 'string' || !['', 'basic', 'attack', 'defense'].includes(category))
+  )
+    throw new RequestError('题型筛选无效')
+  return {
+    search: String(search || '').trim(),
+    questionId: String(questionId || ''),
+    category: String(category || ''),
+  }
+}
+function scoreStudentWhere(userIds: string[], search: string): Prisma.UserWhereInput {
+  return {
+    id: { in: userIds },
+    role: 'student',
+    isTestAccount: false,
+    accountStatus: { not: 'deleted' },
+    ...(search
+      ? {
+          OR: ['username', 'displayName', 'studentId'].map((field) => ({
+            [field]: { contains: search, mode: 'insensitive' },
+          })),
+        }
+      : {}),
+  }
+}
+function scoreQuestionWhere(filters: ReturnType<typeof scoreFilters>): Prisma.QuestionWhereInput {
+  return {
+    status: 'published',
+    ...(filters.questionId ? { id: filters.questionId } : {}),
+    ...(filters.category === 'basic'
+      ? { category: { notIn: ['security', 'adversarial'] } }
+      : filters.category
+        ? { category: { in: ['security', 'adversarial'] }, role: filters.category }
+        : {}),
+  }
+}
+const scoreQuestionSelect = {
+  id: true,
+  title: true,
+  moduleCode: true,
+  number: true,
+  category: true,
+  role: true,
+} as const
+const questionOrder = [
+  { moduleCode: 'asc' },
+  { number: 'asc' },
+  { id: 'asc' },
+] as Prisma.QuestionOrderByWithRelationInput[]
+function basicTotal(rows: AdminStudentQuestionScore[]) {
+  return rows
+    .filter((row) => row.category === 'basic' && row.score !== null)
+    .reduce((sum, row) => sum + row.score!, 0)
+}
+function submissionOutcome(status: string, rawResult: string | null) {
+  if (['pending', 'queued', 'judging', 'baseline', 'opponents', 'running'].includes(status)) return 'pending'
+  if (['stale', 'outdated'].includes(status)) return 'outdated'
+  const result = parseJson<Record<string, unknown> | null>(rawResult, null)
+  const baseline = result?.baseline
+  if (
+    status === 'baseline_failed' ||
+    result?.qualified === false ||
+    result?.baselinePassed === false ||
+    (baseline && typeof baseline === 'object' && 'passed' in baseline && baseline.passed === false)
+  )
+    return 'baseline_failed'
+  const failure = result?.evaluationStatus
+  if (failure === 'student_error' || failure === 'timeout' || failure === 'system_error') return failure
+  if (status === 'student_error' || status === 'timeout' || status === 'system_error') return status
+  if (['failed', 'error'].includes(status)) return 'error'
+  return status === 'completed' ? 'completed' : 'unknown'
+}
+export async function getClassroomScores(payload: Session, id: string, input: Record<string, unknown> = {}) {
+  const filters = scoreFilters(input)
+  const page = pageNumber(input.page, 1, '页码')
+  const pageSize = Math.min(pageNumber(input.pageSize, 20, '每页数量'), 100)
+  const skip = (page - 1) * pageSize
+  if (!Number.isSafeInteger(skip) || skip > 2147483647) throw new RequestError('页码超出支持范围')
+  return read(async (db) => {
+    const classroom = await managed(db, payload, id)
+    const memberships = await db.classMembership.findMany({
+      where: { classroomId: id },
+      select: { userId: true },
+    })
+    const where = scoreStudentWhere(
+      memberships.map((m) => m.userId),
+      filters.search,
+    )
+    const [students, total, questions] = await Promise.all([
+      db.user.findMany({
+        where,
+        select: memberSelect,
+        orderBy: [{ username: 'asc' }, { id: 'asc' }],
+        skip,
+        take: pageSize,
+      }),
+      db.user.count({ where }),
+      db.question.findMany({
+        where: scoreQuestionWhere(filters),
+        select: scoreQuestionSelect,
+        orderBy: questionOrder,
+      }),
+    ])
+    const scores = await questionScoresForStudents(
+      db,
+      students.map((s) => s.id),
+    )
+    const questionIds = new Set(questions.map((q) => q.id))
+    const latestIds = [...scores.values()].flatMap((rows) =>
+      rows.flatMap((row) =>
+        questionIds.has(row.questionId) && row.latestSubmission ? [row.latestSubmission.id] : [],
+      ),
+    )
+    // Read result only for displayed latest submissions and publish an allowlisted outcome, never raw diagnostics.
+    const latestOutcomes = new Map(
+      (
+        await db.submission.findMany({
+          where: { id: { in: latestIds } },
+          select: { id: true, status: true, result: true },
+        })
+      ).map((s) => [s.id, submissionOutcome(s.status, s.result)]),
+    )
+    return {
+      classroom: { id: classroom.id, name: classroom.name },
+      questions: questions.map((q) => ({ ...q, category: normalizeCategory(q.category) })),
+      students: students.map((student) => {
+        const rows = scores.get(student.id)!
+        const byQuestion = new Map(rows.map((row) => [row.questionId, row]))
+        return {
+          userId: student.id,
+          username: student.username,
+          displayName: student.displayName,
+          studentId: student.studentId,
+          basicTotalScore: basicTotal(rows),
+          scores: questions.map((q) => {
+            const row = byQuestion.get(q.id)
+            return {
+              questionId: q.id,
+              score: row?.score ?? null,
+              state: row?.state ?? 'not_submitted',
+              updating: row?.updating ?? false,
+              latestSubmission: row?.latestSubmission
+                ? {
+                    ...row.latestSubmission,
+                    outcome: latestOutcomes.get(row.latestSubmission.id) || 'unknown',
+                  }
+                : null,
+            }
+          }),
+        }
+      }),
+      total,
+      page,
+      pageSize,
+    }
+  })
+}
+
+export async function exportClassrooms(payload: Session, ids: unknown, input?: unknown) {
+  const filters = scoreFilters(input)
   if (
     !Array.isArray(ids) ||
     !ids.length ||
@@ -287,19 +460,17 @@ export async function exportClassrooms(payload: Session, ids: unknown) {
       throw new RequestError('无权导出所选班级', 403)
     const memberships = await db.classMembership.findMany({ where: { classroomId: { in: classroomIds } } })
     const students = await db.user.findMany({
-      where: {
-        id: { in: memberships.map((m) => m.userId) },
-        role: 'student',
-        isTestAccount: false,
-        accountStatus: { not: 'deleted' },
-      },
+      where: scoreStudentWhere(
+        memberships.map((m) => m.userId),
+        filters.search,
+      ),
       select: memberSelect,
       orderBy: [{ username: 'asc' }, { id: 'asc' }],
     })
     const questions = await db.question.findMany({
-      where: { status: 'published' },
-      select: { id: true, title: true, moduleCode: true, number: true },
-      orderBy: [{ moduleCode: 'asc' }, { number: 'asc' }, { id: 'asc' }],
+      where: scoreQuestionWhere(filters),
+      select: scoreQuestionSelect,
+      orderBy: questionOrder,
     })
     const scores = await questionScoresForStudents(
       db,
@@ -331,9 +502,7 @@ export async function exportClassrooms(payload: Session, ids: unknown) {
               const row = byQuestion.get(q.id)
               return row ? (row.score ?? states[row.state]) : '未提交'
             }),
-            rows
-              .filter((r) => r.category === 'basic' && r.score !== null)
-              .reduce((sum, r) => sum + r.score!, 0),
+            basicTotal(rows),
           ]),
         )
       }

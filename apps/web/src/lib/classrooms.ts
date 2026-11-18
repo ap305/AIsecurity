@@ -35,6 +35,56 @@ export interface TeachingGrant {
   userId: string
   enabled: boolean
 }
+export interface ClassroomScoreFilters {
+  search?: string
+  questionId?: string
+  category?: '' | 'basic' | 'attack' | 'defense'
+}
+export interface ClassroomScoreCell {
+  questionId: string
+  score: number | null
+  state: 'scored' | 'pending' | 'no_score' | 'outdated' | 'not_submitted'
+  updating: boolean
+  latestSubmission: {
+    id: string
+    status: string
+    outcome:
+      | 'pending'
+      | 'completed'
+      | 'baseline_failed'
+      | 'student_error'
+      | 'timeout'
+      | 'system_error'
+      | 'error'
+      | 'outdated'
+      | 'unknown'
+    score: number | null
+    questionVersion: number
+    createdAt: string
+  } | null
+}
+export interface ClassroomScores {
+  classroom: { id: string; name: string }
+  questions: {
+    id: string
+    title: string
+    moduleCode: string
+    number: number
+    category: 'basic' | 'adversarial'
+    role: string | null
+  }[]
+  students: {
+    userId: string
+    username: string
+    displayName: string
+    studentId: string | null
+    basicTotalScore: number
+    scores: ClassroomScoreCell[]
+  }[]
+  total: number
+  page: number
+  pageSize: number
+}
 const timeout = 15000
 const path = (id: string) => `/classrooms/${encodeURIComponent(id)}`
 
@@ -95,8 +145,15 @@ const remove = (route: string) =>
     return json.data as { ok: true }
   })
 export const classroomsApi = {
+  capabilities: () => apiGet<{ canTeach: boolean }>('/classrooms/capabilities', 10000),
   list: () => apiGet<ClassroomList>('/classrooms', timeout),
   get: (id: string) => apiGet<ClassroomDetail>(path(id), timeout),
+  scores: (id: string, filters: ClassroomScoreFilters & { page?: number; pageSize?: number } = {}) => {
+    const query = new URLSearchParams()
+    for (const [key, value] of Object.entries(filters))
+      if (value !== undefined && value !== '') query.set(key, String(value))
+    return apiGet<ClassroomScores>(`${path(id)}/scores?${query}`, timeout)
+  },
   create: (input: { name: string; description: string }) =>
     apiPost<ManagedClassroom>('/classrooms', input, timeout),
   join: (inviteCode: string) => apiPost<ClassroomSummary>('/classrooms/join', { inviteCode }, timeout),
@@ -109,10 +166,10 @@ export const classroomsApi = {
     apiGet<TeachingGrant>(`/admin/users/${encodeURIComponent(userId)}/teaching`, timeout),
   setTeaching: (userId: string, enabled: boolean) =>
     apiPut<TeachingGrant>(`/admin/users/${encodeURIComponent(userId)}/teaching`, { enabled }, timeout),
-  export: (classroomIds: string[]) =>
+  export: (classroomIds: string[], filters?: ClassroomScoreFilters) =>
     rawRequest(
       '/classrooms/export',
-      { method: 'POST', body: JSON.stringify({ classroomIds }) },
+      { method: 'POST', body: JSON.stringify({ classroomIds, ...(filters ? { filters } : {}) }) },
       async (response) => {
         const type = response.headers.get('content-type') || ''
         if (!/^(text\/csv|application\/zip)(?:;|$)/i.test(type)) throw new Error('导出文件格式异常，请重试')

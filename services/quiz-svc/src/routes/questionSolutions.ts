@@ -6,6 +6,7 @@ import {
   createQuestionSolution,
   listQuestionSolutions,
   listSolutionCandidates,
+  listTeachingSolutions,
   updateQuestionSolution,
   withdrawQuestionSolution,
 } from '../services/questionSolutions.js'
@@ -20,18 +21,20 @@ const handle =
       res.setHeader('Cache-Control', 'no-store')
       res.status(status).json({ code: 0, message: 'ok', data: await operation(req, authPayload(req)!) })
     } catch (error) {
-      res
-        .status(error instanceof RequestError || error instanceof AuthError ? error.status : 500)
-        .json({
-          code: error instanceof AuthError ? error.code : 40001,
-          message:
-            error instanceof RequestError || error instanceof AuthError
-              ? error.message
-              : '题解操作失败，请稍后重试',
-          data: null,
-        })
+      res.status(error instanceof RequestError || error instanceof AuthError ? error.status : 500).json({
+        code: error instanceof AuthError ? error.code : 40001,
+        message:
+          error instanceof RequestError || error instanceof AuthError
+            ? error.message
+            : '题解操作失败，请稍后重试',
+        data: null,
+      })
     }
   }
+router.get(
+  '/teaching/solutions',
+  handle((req, user) => listTeachingSolutions(user, req.query)),
+)
 router.get(
   '/questions/:id/solutions',
   handle((req, user) => listQuestionSolutions(req.params.id, user, req.query)),

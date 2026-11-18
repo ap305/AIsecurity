@@ -499,3 +499,185 @@ test('publication caps prevent unlimited posts and a withdrawal frees a slot; re
     201,
   )
 })
+
+test('teacher workbench is own-only and supports publish, edit, withdraw and republish with current permissions', async () => {
+  const q = await question('workbench-published')
+  const draftQuestion = await question('workbench-private-question', {
+    status: 'draft',
+    content: 'PRIVATE_QUESTION',
+  })
+  const payload = {
+    kind: 'standard',
+    title: 'workbench lecture',
+    explanation: 'manual explanation',
+    code: 'lecture()',
+    questionVersion: q.revision,
+  }
+  assert.equal((await request('/teaching/solutions', 'anonymous')).status, 401)
+  assert.equal((await request('/teaching/solutions', 'alice')).status, 403)
+  await prisma.teacherGrant.upsert({
+    where: { userId: 'teacher' },
+    create: { userId: 'teacher', grantedBy: 'admin' },
+    update: {},
+  })
+  const own = await request(`/questions/${q.id}/solutions`, 'teacher', 'POST', payload)
+  assert.equal(own.status, 201)
+  const other = await request(`/questions/${q.id}/solutions`, 'admin', 'POST', {
+    ...payload,
+    code: 'ADMIN_PRIVATE_DRAFT',
+  })
+  await request(`/solutions/${other.body.data.id}`, 'admin', 'DELETE')
+  const privateSubmission = await submission(q, 'teacher', { code: 'PRIVATE_TEACHER_SUBMISSION' })
+  const page = await request('/teaching/solutions?search=workbench', 'teacher')
+  assert.equal(page.status, 200)
+  assert.equal(page.body.data.scope, 'mine')
+  assert.equal(page.body.data.visibility, 'authenticated')
+  assert.deepEqual(
+    page.body.data.items.map((r: any) => r.id),
+    [own.body.data.id],
+  )
+  assert.equal(page.body.data.items[0].canEdit, true)
+  assert.ok(page.body.data.questions.some((row: any) => row.id === q.id))
+  assert.ok(!page.body.data.questions.some((row: any) => row.id === draftQuestion.id))
+  assert.doesNotMatch(
+    JSON.stringify(page.body.data),
+    /ADMIN_PRIVATE_DRAFT|PRIVATE_|password|configSnapshot|authorId/,
+  )
+  assert.deepEqual((await request('/teaching/solutions?search=absent', 'teacher')).body.data.items, [])
+  assert.equal((await request('/teaching/solutions?scope=all', 'teacher')).status, 400)
+  assert.equal((await request('/teaching/solutions?page=0', 'teacher')).status, 400)
+  assert.equal(
+    (await request(`/solutions/${other.body.data.id}`, 'teacher', 'PUT', { title: 'steal' })).status,
+    403,
+  )
+  assert.equal((await request(`/solutions/${other.body.data.id}`, 'teacher', 'DELETE')).status, 403)
+  const original = page.body.data.items[0]
+  const edited = await request(`/solutions/${own.body.data.id}`, 'teacher', 'PUT', {
+    title: 'updated lecture',
+    expectedUpdatedAt: original.updatedAt,
+  })
+  assert.equal(edited.status, 200)
+  assert.equal(
+    (
+      await request(`/solutions/${own.body.data.id}`, 'teacher', 'PUT', {
+        title: 'stale overwrite',
+        expectedUpdatedAt: original.updatedAt,
+      })
+    ).status,
+    409,
+  )
+  assert.equal((await request(`/solutions/${own.body.data.id}`, 'teacher', 'DELETE')).status, 200)
+  const withdrawn = (await request('/teaching/solutions?search=updated', 'teacher')).body.data.items[0]
+  assert.equal(withdrawn.published, false)
+  assert.equal((await request(`/questions/${q.id}/solutions`, 'alice')).body.data.standard.length, 0)
+  assert.equal(
+    (
+      await request(`/solutions/${own.body.data.id}`, 'teacher', 'PUT', {
+        published: true,
+        expectedUpdatedAt: withdrawn.updatedAt,
+      })
+    ).status,
+    200,
+  )
+  const publicView = (await request(`/questions/${q.id}/solutions`, 'alice')).body.data
+  assert.equal(publicView.standard[0].title, 'updated lecture')
+  assert.equal(publicView.standard[0].actualEvaluationReference, false)
+  assert.equal(publicView.standard[0].source, 'manual')
+  assert.equal(publicView.standard[0].code, 'lecture()')
+  assert.deepEqual(await prisma.question.findUnique({ where: { id: q.id } }), q)
+  assert.deepEqual(
+    await prisma.submission.findUnique({ where: { id: privateSubmission.id } }),
+    privateSubmission,
+  )
+  await prisma.teacherGrant.delete({ where: { userId: 'teacher' } })
+  for (const [path, method, body] of [
+    ['/teaching/solutions', 'GET', undefined],
+    [`/questions/${q.id}/solutions`, 'POST', payload],
+    [`/solutions/${own.body.data.id}`, 'PUT', { title: 'after revocation' }],
+    [`/solutions/${own.body.data.id}`, 'DELETE', undefined],
+  ] as const)
+    assert.equal((await request(path, 'teacher', method, body)).status, 403)
+  assert.equal((await request(`/solutions/${own.body.data.id}`, 'admin', 'DELETE')).status, 200)
+  assert.ok(
+    !(await request('/teaching/solutions', 'admin')).body.data.items.some(
+      (r: any) => r.id === own.body.data.id,
+    ),
+  )
+})
+
+test('withdraw controls follow revoked teaching grants without disabling own user posts or administrator actions', async () => {
+  const q = await question('solutions-withdraw-capability')
+  await prisma.teacherGrant.upsert({
+    where: { userId: 'teacher' },
+    create: { userId: 'teacher', grantedBy: 'admin' },
+    update: {},
+  })
+  const standard = await request(`/questions/${q.id}/solutions`, 'teacher', 'POST', {
+    kind: 'standard',
+    title: '教师讲解',
+    explanation: '公开说明',
+  })
+  const own = await request(`/questions/${q.id}/solutions`, 'teacher', 'POST', {
+    kind: 'user',
+    title: '个人题解',
+    explanation: '本人主动公开',
+  })
+  assert.equal(standard.status, 201)
+  assert.equal(own.status, 201)
+  const authorized = (await request(`/questions/${q.id}/solutions`, 'teacher')).body.data
+  assert.equal(authorized.canPublishStandard, true)
+  assert.equal(authorized.standard[0].canWithdraw, true)
+  await prisma.teacherGrant.delete({ where: { userId: 'teacher' } })
+  const revoked = (await request(`/questions/${q.id}/solutions`, 'teacher')).body.data
+  assert.equal(revoked.canPublishStandard, false)
+  assert.equal(revoked.standard[0].canWithdraw, false)
+  assert.equal(revoked.user[0].canWithdraw, true)
+  const admin = (await request(`/questions/${q.id}/solutions`, 'admin')).body.data
+  assert.equal(admin.standard[0].canWithdraw, true)
+  assert.equal(admin.user[0].canWithdraw, true)
+  assert.equal((await request(`/solutions/${standard.body.data.id}`, 'teacher', 'DELETE')).status, 403)
+  assert.equal((await request(`/solutions/${own.body.data.id}`, 'teacher', 'DELETE')).status, 200)
+  assert.equal((await request(`/solutions/${standard.body.data.id}`, 'admin', 'DELETE')).status, 200)
+})
+
+test('teacher workbench rejects malformed and out-of-range pagination before querying Prisma', async () => {
+  for (const value of ['0', '-1', '1.5', 'no-page', '107374184']) {
+    const result = await request(`/teaching/solutions?page=${value}`, 'admin')
+    assert.equal(result.status, 400, `page=${value}: ${JSON.stringify(result.body)}`)
+    assert.equal(result.body.code, 40001)
+    assert.equal(result.body.data, null)
+  }
+  assert.equal((await request('/teaching/solutions?page[x]=1', 'admin')).status, 400)
+  const page = await request('/teaching/solutions?page=2', 'admin')
+  assert.equal(page.status, 200)
+  assert.equal(page.body.data.pagination.page, 2)
+})
+
+test('teacher workbench marks outdated lectures and prevents publishing an outdated question draft', async () => {
+  const q = await question('workbench-version')
+  const posted = await request(`/questions/${q.id}/solutions`, 'admin', 'POST', {
+    kind: 'standard',
+    title: 'old',
+    code: 'v1',
+    questionVersion: 1,
+  })
+  await prisma.question.update({ where: { id: q.id }, data: { revision: 2 } })
+  const row = (await request('/teaching/solutions?search=workbench-version', 'admin')).body.data.items[0]
+  assert.equal(row.id, posted.body.data.id)
+  assert.equal(row.canEdit, false)
+  assert.equal(row.question.revision, 2)
+  assert.equal(row.questionVersion, 1)
+  assert.equal((await request(`/solutions/${row.id}`, 'admin', 'PUT', { published: true })).status, 409)
+  assert.equal(
+    (
+      await request(`/questions/${q.id}/solutions`, 'admin', 'POST', {
+        kind: 'standard',
+        title: 'stale draft',
+        code: 'v1',
+        questionVersion: 1,
+      })
+    ).status,
+    409,
+  )
+  assert.equal((await request(`/solutions/${row.id}`, 'admin', 'DELETE')).status, 200)
+})

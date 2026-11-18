@@ -1,0 +1,105 @@
+.teaching-solutions {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 24px;
+}
+.teaching-solutions-heading,
+.teaching-solutions-toolbar,
+.teaching-solutions-toolbar form,
+.teaching-solutions-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.teaching-solutions-heading {
+  justify-content: space-between;
+}
+.teaching-solutions-heading h1 {
+  margin-top: 4px;
+}
+.teaching-solutions-scope {
+  padding: 18px 20px;
+  margin: 20px 0;
+  border: 1px solid var(--border-color, #475569);
+  border-left: 4px solid var(--accent-color, #60a5fa);
+  border-radius: 10px;
+  background: var(--bg-secondary, #111827);
+}
+.teaching-solutions-scope p {
+  margin: 8px 0 0;
+}
+.teaching-solutions-toolbar {
+  margin: 20px 0;
+  justify-content: space-between;
+}
+.teaching-solutions-toolbar label {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.teaching-solutions-layout {
+  display: grid;
+  grid-template-columns: minmax(270px, 0.8fr) minmax(0, 1.2fr);
+  gap: 24px;
+  align-items: start;
+}
+.teaching-solutions-list,
+.teaching-solutions-editor {
+  min-width: 0;
+}
+.teaching-solutions-item,
+.teaching-solutions-editor {
+  padding: 20px;
+}
+.teaching-solutions-item {
+  margin-bottom: 16px;
+  overflow-wrap: anywhere;
+}
+.teaching-solutions-item h3 {
+  margin-top: 0;
+}
+.teaching-solutions-item .teaching-solutions-actions {
+  margin: 16px 0;
+}
+.teaching-solutions-editor form,
+.teaching-solutions-editor label {
+  display: grid;
+  gap: 10px;
+}
+.teaching-solutions-editor form {
+  gap: 18px;
+}
+.teaching-solutions input:not([type='checkbox']),
+.teaching-solutions select,
+.teaching-solutions textarea {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px;
+  color: var(--text-primary, #f3f4f6);
+  background: var(--bg-secondary, #111827);
+  border: 1px solid var(--border-color, #475569);
+  border-radius: 6px;
+}
+.teaching-solutions-editor textarea[name='code'] {
+  font-family: monospace;
+}
+.teaching-solutions-editor .teaching-solutions-consent {
+  display: flex;
+  align-items: flex-start;
+}
+.teaching-solutions-publish-note {
+  padding: 12px;
+  border: 1px solid var(--border-color, #475569);
+  border-radius: 6px;
+}
+@media (max-width: 850px) {
+  .teaching-solutions-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .teaching-solutions {
+    padding: 16px;
+  }
+}

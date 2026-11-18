@@ -16,6 +16,11 @@ const referenceNames = {
   opponent: '对手参考',
   qualification: '资格基线学习说明',
 }
+export const solutionSourceTabs = [
+  ['standard', '标准与教师讲解'],
+  ['user', '学生题解'],
+  ['top', '公开题解最高分'],
+] as const
 const date = (value: string) => new Date(value).toLocaleString('zh-CN')
 export function SolutionCards({
   rows,
@@ -32,10 +37,10 @@ export function SolutionCards({
     return (
       <p className="prd-muted">
         {kind === 'standard'
-          ? '尚未发布标准题解。教师可发布说明或文本代码；线上实际参考实现须经来源核验后单独发布。'
+          ? '尚未发布标准与教师讲解。教师可发布说明或文本代码；线上实际参考实现须经来源核验后单独发布。'
           : kind === 'top'
             ? '当前没有主动公开且有效的最高分题解。不会公开未授权的历史提交。'
-            : '尚无用户题解。你可以主动分享文字、代码或自己的已完成提交。'}
+            : '尚无学生题解。你可以主动分享文字、代码或自己的已完成提交。'}
       </p>
     )
   return (
@@ -145,6 +150,7 @@ export default function QuestionSolutions() {
     }
   }, [scopeKey])
   const [page, setPage] = useState<SolutionPage | null>(null)
+  const [pageScope, setPageScope] = useState('')
   const [candidates, setCandidates] = useState<SolutionCandidate[]>([])
   const [tab, setTab] = useState<'standard' | 'user' | 'top'>('standard')
   const [loading, setLoading] = useState(true)
@@ -174,7 +180,10 @@ export default function QuestionSolutions() {
     questionSolutionsApi
       .list(questionId, pageNumber)
       .then((data) => {
-        if (currentRead()) setPage(data)
+        if (currentRead()) {
+          setPage(data)
+          setPageScope(scopeKey)
+        }
       })
       .catch((e) => {
         if (currentRead()) {
@@ -239,6 +248,7 @@ export default function QuestionSolutions() {
         explanation,
         ...(kind === 'user' && sourceId ? { sourceSubmissionId: sourceId } : { code }),
         ...(kind === 'standard' ? { referenceKind } : {}),
+        questionVersion: page?.question.revision,
       })
       if (!isCurrent()) return
       setSuccess('题解已公开，可随时撤回。')
@@ -294,7 +304,9 @@ export default function QuestionSolutions() {
       <Link className="prd-button" to={`/question/${encodeURIComponent(questionId)}`}>
         ← 返回提交页
       </Link>
-      <h1>{page?.question.id === questionId ? page.question.title : '题目'} · 题解</h1>
+      <h1>
+        {pageScope === scopeKey && page?.question.id === questionId ? page.question.title : '题目'} · 题解
+      </h1>
       <p className="prd-muted">展示当前已发布版本的代码和说明，所有内容仅供阅读。模型权重不会自动公开。</p>
       <button className="prd-button" disabled={loading} onClick={refresh}>
         刷新题解和当前分数
@@ -309,16 +321,10 @@ export default function QuestionSolutions() {
       )}
       {success && <p role="status">{success}</p>}
       {loading && <p role="status">正在加载题解…</p>}
-      {page?.question.id === questionId && (
+      {pageScope === scopeKey && page?.question.id === questionId && (
         <>
           <nav aria-label="题解来源" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
-            {(
-              [
-                ['standard', '标准题解'],
-                ['user', '用户题解'],
-                ['top', '当前最高分'],
-              ] as const
-            ).map(([value, label]) => (
+            {solutionSourceTabs.map(([value, label]) => (
               <button
                 key={value}
                 className={`prd-button${tab === value ? ' primary' : ''}`}
@@ -335,10 +341,15 @@ export default function QuestionSolutions() {
             </p>
           )}
           {tab === 'standard' && page.standardNotice && <p role="note">{page.standardNotice}</p>}
+          {page.canPublishStandard && (
+            <p>
+              <Link to="/teaching/solutions">前往我的讲解，统一预览、编辑与发布教师讲解</Link>
+            </p>
+          )}
           <SolutionCards rows={page[tab]} kind={tab} busyId={busyIds} onWithdraw={withdraw} />
           {tab === 'user' && (
             <nav
-              aria-label="用户题解分页"
+              aria-label="学生题解分页"
               style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 16 }}
             >
               <button
@@ -364,7 +375,8 @@ export default function QuestionSolutions() {
           <section className="prd-card" style={{ marginTop: 32, padding: 20 }}>
             <h2>发布题解</h2>
             <p className="prd-muted">
-              每人每题当前版本最多公开 20 篇；可选最近 100 次已完成代码提交。撤回旧题解后可继续发布。
+              发布后全站已登录用户可见，不限本班级。 每人每题当前版本最多公开 20 篇；可选最近 100
+              次已完成代码提交。撤回旧题解后可继续发布。
             </p>
             <form onSubmit={publish} style={{ display: 'grid', gap: 14 }}>
               {page.canPublishStandard && (
@@ -379,10 +391,8 @@ export default function QuestionSolutions() {
                       setConsent(false)
                     }}
                   >
-                    <option value="user">用户题解</option>
-                    <option value="standard">
-                      {page.question.category === 'adversarial' ? '教师补充讲解' : '标准题解'}
-                    </option>
+                    <option value="user">学生题解</option>
+                    <option value="standard">教师手工讲解</option>
                   </select>
                 </label>
               )}
@@ -508,7 +518,7 @@ export default function QuestionSolutions() {
                   disabled={publishing}
                   onChange={(e) => setConsent(e.target.checked)}
                 />{' '}
-                我主动允许所有已登录用户查看以上代码和说明，并允许有效提交参与“当前最高分”题解展示；已检查内容不含密钥或私人信息。
+                我主动允许所有已登录用户查看以上代码和说明，并允许有效提交参与“公开题解最高分”展示；已检查内容不含密钥或私人信息。
               </label>
               <button className="prd-button primary" disabled={publishing || fileLoading || !consent}>
                 {publishing ? '正在发布…' : '确认公开题解'}

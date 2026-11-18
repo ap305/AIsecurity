@@ -1,0 +1,114 @@
+.class-workbench .class-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0;
+}
+.class-workbench .class-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+.class-workbench .class-list p {
+  margin: 6px 0 0;
+}
+.class-workbench .class-form {
+  display: grid;
+  gap: 10px;
+  max-width: 680px;
+}
+.class-workbench .class-form button {
+  justify-self: start;
+  margin-top: 6px;
+}
+.class-workbench .class-form textarea {
+  min-height: 96px;
+}
+.class-workbench .class-invite,
+.class-workbench .class-tabs,
+.class-workbench .class-export-actions,
+.class-workbench .class-pagination {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 16px 0;
+}
+.class-workbench .class-invite code {
+  user-select: all;
+  overflow-wrap: anywhere;
+}
+.class-workbench .class-copy-fallback {
+  display: grid;
+  gap: 8px;
+  max-width: 480px;
+}
+.class-workbench .class-tabs {
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 12px;
+}
+.class-workbench .class-tabs [aria-pressed='true'] {
+  background: var(--brand-cyan-dim);
+  border-color: var(--brand-cyan);
+  color: var(--brand-cyan);
+}
+.class-workbench .class-secondary-actions {
+  margin-top: 28px;
+  border-top: 1px solid var(--border-color);
+  padding-top: 16px;
+}
+.class-workbench .class-danger {
+  color: var(--danger);
+}
+.class-workbench .class-detail-footer {
+  margin-top: 24px;
+}
+.class-workbench .class-score-filters {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 18px 0;
+}
+.class-workbench .class-score-filters label {
+  display: grid;
+  gap: 6px;
+  min-width: 140px;
+  max-width: 100%;
+}
+.class-workbench .class-score-filters select {
+  max-width: 380px;
+}
+.class-workbench .class-score-table th,
+.class-workbench .class-score-table td {
+  min-width: 180px;
+  vertical-align: top;
+}
+.class-workbench .class-score-table th:first-child {
+  min-width: 160px;
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--bg-secondary);
+  box-shadow: 1px 0 0 var(--border-color);
+}
+.class-workbench .class-score-table small {
+  display: block;
+  margin-top: 6px;
+  font-weight: normal;
+  color: var(--text-secondary);
+}
+@media (max-width: 640px) {
+  .class-workbench .class-list li {
+    align-items: start;
+    flex-direction: column;
+  }
+  .class-workbench .class-score-filters label {
+    width: 100%;
+  }
+  .class-workbench .class-score-filters select {
+    max-width: 100%;
+  }
+}

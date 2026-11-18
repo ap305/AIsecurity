@@ -5,6 +5,8 @@ export interface AdminUser {
   username: string
   displayName: string
   role: string
+  teachingGranted?: boolean
+  canTeach?: boolean
   tier: string
   school: string
   studentId?: string | null

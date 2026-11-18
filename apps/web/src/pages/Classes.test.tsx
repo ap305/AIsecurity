@@ -2,7 +2,13 @@ import test, { type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import Classes from './Classes'
+import {
+  UNSAFE_RouteContext,
+  UNSAFE_LocationContext,
+  UNSAFE_NavigationContext,
+  UNSAFE_DataRouterContext,
+} from 'react-router-dom'
+import Classes, { ClassScores } from './Classes'
 import { classroomsApi } from '../lib/classrooms'
 import { TeachingGrantControl } from './admin/UserManager'
 
@@ -14,6 +20,7 @@ const classroom = {
   archivedAt: null,
 }
 const joined = { canTeach: false, owned: [], joined: [classroom] }
+const teaching = () => Classes({ workspace: 'teaching' })
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve))
 function deferred<T>() {
   let resolve!: (v: T) => void, reject!: (e: unknown) => void
@@ -30,6 +37,10 @@ function page(t: TestContext, component = Classes) {
     effects: Array<() => void> = [],
     cleanups = new Map<number, () => void>()
   let index = 0
+  let routeId: string | undefined
+  const route = (to: { pathname: string }) => {
+    routeId = to.pathname.match(/^\/teaching\/classes\/([^/]+)$/)?.[1]
+  }
   const dispatcher = {
     useState(initial: any) {
       const key = index++
@@ -44,6 +55,25 @@ function page(t: TestContext, component = Classes) {
     useRef(initial: any) {
       const key = index++
       return hooks[key] ?? (hooks[key] = { current: initial })
+    },
+    useContext(context: any) {
+      if (context === UNSAFE_RouteContext)
+        return { matches: [{ params: { classId: routeId } }], outlet: null, isDataRoute: false }
+      if (context === UNSAFE_LocationContext)
+        return {
+          location: { pathname: '/teaching', search: '', hash: '', state: null, key: 'test' },
+          navigationType: 'POP',
+        }
+      if (context === UNSAFE_NavigationContext)
+        return { basename: '/', future: {}, navigator: { push: route, replace: route }, static: false }
+      if (context === UNSAFE_DataRouterContext) return null
+      return null
+    },
+    useCallback(callback: unknown) {
+      return callback
+    },
+    useLayoutEffect(effect: () => void) {
+      effect()
     },
     useEffect(effect: () => (() => void) | void, deps: unknown[]) {
       const key = index++,
@@ -60,6 +90,9 @@ function page(t: TestContext, component = Classes) {
   }
   t.after(() => cleanups.forEach((cleanup) => cleanup()))
   return {
+    route(classId?: string) {
+      routeId = classId
+    },
     render() {
       index = 0
       const old = internals.ReactCurrentDispatcher.current
@@ -181,7 +214,7 @@ test('teacher sees safe export instructions and export failure releases only its
   t.mock.method(classroomsApi, 'export', async () => {
     throw new Error('无权导出')
   })
-  const view = page(t)
+  const view = page(t, teaching)
   view.render()
   await settle()
   const tree = view.render()
@@ -209,12 +242,13 @@ test('saving a previous class cannot overwrite the newly selected class draft', 
     members: [],
   }))
   t.mock.method(classroomsApi, 'update', () => pending.promise)
-  const view = page(t)
+  const view = page(t, teaching)
   view.render()
   await settle()
   button(view.render(), '管理安全一班').props.onClick()
   view.render()
   await settle()
+  button(view.render(), '班级设置').props.onClick()
   const saving = button(view.render(), '保存班级资料').props.onClick()
   button(view.render(), '管理安全二班').props.onClick()
   view.render()
@@ -256,11 +290,15 @@ test('invite refresh preserves a draft while save and class selection load curre
     first = { ...first, inviteCode: 'ROTATED' }
     return first
   })
-  t.mock.method(classroomsApi, 'update', async (_id: string, fields: Parameters<typeof classroomsApi.update>[1]) => {
-    first = { ...first, name: fields.name!.trim(), description: fields.description! }
-    return first
-  })
-  const view = page(t)
+  t.mock.method(
+    classroomsApi,
+    'update',
+    async (_id: string, fields: Parameters<typeof classroomsApi.update>[1]) => {
+      first = { ...first, name: fields.name!.trim(), description: fields.description! }
+      return first
+    },
+  )
+  const view = page(t, teaching)
   const name = () => elements(view.render()).find((el) => el.props.id === 'class-edit-name')!
   const description = () => elements(view.render()).find((el) => el.props.id === 'class-edit-description')!
   view.render()
@@ -268,6 +306,7 @@ test('invite refresh preserves a draft while save and class selection load curre
   button(view.render(), '管理安全一班').props.onClick()
   view.render()
   await settle()
+  button(view.render(), '班级设置').props.onClick()
   name().props.onChange({ target: { value: '  一班新名称  ' } })
   description().props.onChange({ target: { value: '一班新说明' } })
   button(view.render(), '重置邀请码').props.onClick()
@@ -289,6 +328,126 @@ test('invite refresh preserves a draft while save and class selection load curre
   assert.equal(description().props.value, '二班已保存说明')
 })
 
+test('practice space remains join-only for teachers and teaching puts managed classes first', async (t) => {
+  t.mock.method(classroomsApi, 'list', async () => ({
+    canTeach: true,
+    owned: [{ ...classroom, ownerId: 'teacher', inviteCode: 'ABCD' }],
+    joined: [classroom],
+  }))
+  const practice = page(t)
+  practice.render()
+  await settle()
+  assert.doesNotMatch(renderToStaticMarkup(practice.render()), /创建班级|导出所选班级|管理安全一班/)
+  assert.match(renderToStaticMarkup(practice.render()), /已加入的班级/)
+  const teacher = page(t, teaching)
+  teacher.render()
+  await settle()
+  const html = renderToStaticMarkup(teacher.render())
+  assert.doesNotMatch(html, /加入班级|已加入的班级/)
+  assert.ok(html.indexOf('可管理的班级') < html.indexOf('创建班级'))
+})
+
+test('teacher tabs separate member, score and settings views; failed invite copy shows a selectable code', async (t) => {
+  t.mock.method(classroomsApi, 'list', async () => ({
+    canTeach: true,
+    owned: [{ ...classroom, ownerId: 'teacher', inviteCode: 'ABCD' }],
+    joined: [],
+  }))
+  t.mock.method(classroomsApi, 'get', async () => ({
+    ...classroom,
+    canManage: true,
+    isMember: false,
+    inviteCode: 'COPY_CODE',
+    members: [],
+  }))
+  const view = page(t, teaching)
+  view.render()
+  await settle()
+  button(view.render(), '管理安全一班').props.onClick()
+  view.render()
+  await settle()
+  assert.match(renderToStaticMarkup(view.render()), /班级成员/)
+  assert.doesNotMatch(renderToStaticMarkup(view.render()), /保存班级资料/)
+  await button(view.render(), '复制邀请码').props.onClick()
+  assert.match(renderToStaticMarkup(view.render()), /无法自动复制/)
+  assert.ok(
+    elements(view.render()).some(
+      (el) => el.type === 'input' && el.props.readOnly && el.props.value === 'COPY_CODE',
+    ),
+  )
+  button(view.render(), '班级设置').props.onClick()
+  assert.ok(button(view.render(), '保存班级资料'))
+  assert.doesNotMatch(renderToStaticMarkup(view.render()), /班级成员（/)
+})
+
+test('teacher deep links load the selected class and returning to the workspace closes its detail', async (t) => {
+  t.mock.method(classroomsApi, 'list', async () => ({
+    canTeach: true,
+    owned: [{ ...classroom, ownerId: 'teacher', inviteCode: 'ABCD' }],
+    joined: [],
+  }))
+  t.mock.method(classroomsApi, 'get', async () => ({
+    ...classroom,
+    canManage: true,
+    isMember: false,
+    members: [],
+  }))
+  const view = page(t, teaching)
+  view.route('c1')
+  view.render()
+  await settle()
+  assert.match(renderToStaticMarkup(view.render()), /班级详情：安全一班/)
+  button(view.render(), '管理安全一班').props.onClick()
+  view.render()
+  view.route()
+  assert.doesNotMatch(renderToStaticMarkup(view.render()), /班级详情：/)
+})
+
+test('member search matches account, name and student ID and preserves the full roster', async (t) => {
+  t.mock.method(classroomsApi, 'list', async () => ({
+    canTeach: true,
+    owned: [{ ...classroom, ownerId: 'teacher', inviteCode: 'ABCD' }],
+    joined: [],
+  }))
+  t.mock.method(classroomsApi, 'get', async () => ({
+    ...classroom,
+    canManage: true,
+    isMember: false,
+    members: [
+      {
+        userId: 's1',
+        username: 'alice',
+        displayName: '张同学',
+        studentId: '0001',
+        isTestAccount: false,
+        joinedAt: classroom.createdAt,
+      },
+      {
+        userId: 's2',
+        username: 'bob',
+        displayName: '李同学',
+        studentId: '0002',
+        isTestAccount: false,
+        joinedAt: classroom.createdAt,
+      },
+    ],
+  }))
+  const view = page(t, teaching)
+  view.route('c1')
+  view.render()
+  await settle()
+  for (const search of ['ALICE', '张', '0001']) {
+    input(view.render(), 'memberSearch').props.onChange({ target: { value: search } })
+    const html = renderToStaticMarkup(view.render())
+    assert.match(html, /张同学/)
+    assert.doesNotMatch(html, /李同学/)
+  }
+  input(view.render(), 'memberSearch').props.onChange({ target: { value: '不存在' } })
+  assert.match(renderToStaticMarkup(view.render()), /没有匹配的成员/)
+  input(view.render(), 'memberSearch').props.onChange({ target: { value: '' } })
+  assert.match(renderToStaticMarkup(view.render()), /李同学/)
+})
+
 test('administrator teaching control reads the grant, saves explicitly and remains usable after failure', async (t) => {
   t.mock.method(globalThis, 'fetch', async (_url: RequestInfo | URL, options?: RequestInit) => {
     if (options?.method === 'PUT')
@@ -302,4 +461,139 @@ test('administrator teaching control reads the grant, saves explicitly and remai
   await button(view.render(), '授予教师权限').props.onClick()
   assert.match(renderToStaticMarkup(view.render()), /操作失败/)
   assert.equal(button(view.render(), '授予教师权限').props.disabled, false)
+})
+
+const scorePage = (id = 'c1') => ({
+  classroom: { id, name: '安全一班' },
+  total: 1,
+  page: 1,
+  pageSize: 20,
+  questions: [
+    { id: 'q1', title: '基础题', moduleCode: 'T', number: 1, category: 'basic' as const, role: null },
+    { id: 'q2', title: '零分题', moduleCode: 'T', number: 2, category: 'basic' as const, role: null },
+    { id: 'q3', title: '未提交题', moduleCode: 'T', number: 3, category: 'basic' as const, role: null },
+  ],
+  students: [
+    {
+      userId: 'student',
+      username: 'student',
+      displayName: '张同学',
+      studentId: '0001',
+      basicTotalScore: 70,
+      scores: [
+        {
+          questionId: 'q1',
+          score: 70,
+          state: 'scored' as const,
+          updating: false,
+          latestSubmission: {
+            id: 'latest',
+            status: 'completed',
+            outcome: 'baseline_failed' as const,
+            score: null,
+            questionVersion: 1,
+            createdAt: '2026-11-18T00:00:00Z',
+          },
+        },
+        { questionId: 'q2', score: 0, state: 'scored' as const, updating: false, latestSubmission: null },
+        {
+          questionId: 'q3',
+          score: null,
+          state: 'not_submitted' as const,
+          updating: false,
+          latestSubmission: null,
+        },
+      ],
+    },
+  ],
+})
+test('score table separates current grades, baseline failures, zero and absent submission', async (t) => {
+  t.mock.method(classroomsApi, 'scores', async () => scorePage())
+  const view = page(t, () => ClassScores({ classId: 'c1' }))
+  view.render()
+  await settle()
+  const html = renderToStaticMarkup(view.render())
+  assert.match(html, /当前成绩：.*70/)
+  assert.match(html, /最近提交：未过基线/)
+  assert.match(html, /当前成绩：.*0/)
+  assert.match(html, /未提交/)
+  assert.doesNotMatch(html, /value="70"|修改成绩/)
+})
+
+test('score filters apply together and both exports retain explicit all versus current-filter scope', async (t) => {
+  const requests: any[] = [],
+    exports: any[] = []
+  t.mock.method(
+    classroomsApi,
+    'scores',
+    async (id: string, filters: Parameters<typeof classroomsApi.scores>[1]) => {
+      requests.push({ id, filters })
+      return scorePage()
+    },
+  )
+  t.mock.method(classroomsApi, 'export', async (...args: Parameters<typeof classroomsApi.export>) => {
+    exports.push(args)
+    throw new Error('下载中断')
+  })
+  const view = page(t, () => ClassScores({ classId: 'c1' }))
+  view.render()
+  await settle()
+  input(view.render(), 'scoreSearch').props.onChange({ target: { value: '张' } })
+  elements(view.render())
+    .find((el) => el.props.name === 'scoreCategory')!
+    .props.onChange({ target: { value: 'attack' } })
+  elements(view.render())
+    .find((el) => el.props.name === 'scoreQuestion')!
+    .props.onChange({ target: { value: 'q1' } })
+  button(view.render(), '应用筛选').props.onClick()
+  view.render()
+  await settle()
+  assert.deepEqual(requests.at(-1).filters, {
+    search: '张',
+    category: 'attack',
+    questionId: 'q1',
+    page: 1,
+    pageSize: 20,
+  })
+  await button(view.render(), '导出当前筛选').props.onClick()
+  await button(view.render(), '导出全班成绩').props.onClick()
+  assert.deepEqual(exports, [
+    [['c1'], { search: '张', category: 'attack', questionId: 'q1' }],
+    [['c1'], undefined],
+  ])
+  assert.equal(button(view.render(), '导出当前筛选').props.disabled, false)
+  assert.match(renderToStaticMarkup(view.render()), /下载中断/)
+})
+
+test('score class changes hide old data before effects and late responses cannot restore it', async (t) => {
+  let id = 'c1'
+  const older = deferred<ReturnType<typeof scorePage>>()
+  t.mock.method(classroomsApi, 'scores', (classId: string) =>
+    classId === 'c1' ? older.promise : Promise.resolve({ ...scorePage('c2'), students: [] }),
+  )
+  const view = page(t, () => ClassScores({ classId: id }))
+  view.render()
+  id = 'c2'
+  assert.doesNotMatch(renderToStaticMarkup(view.render()), /张同学/)
+  await settle()
+  older.resolve(scorePage())
+  await settle()
+  assert.doesNotMatch(renderToStaticMarkup(view.render()), /张同学/)
+})
+
+test('revoked score refresh clears sensitive rows and permits retry after failure', async (t) => {
+  let reads = 0
+  t.mock.method(classroomsApi, 'scores', async () => {
+    if (++reads > 1) throw new Error('无权查看')
+    return scorePage()
+  })
+  const view = page(t, () => ClassScores({ classId: 'c1' }))
+  view.render()
+  await settle()
+  assert.match(renderToStaticMarkup(view.render()), /张同学/)
+  button(view.render(), '刷新成绩').props.onClick()
+  assert.doesNotMatch(renderToStaticMarkup(view.render()), /张同学/)
+  await settle()
+  assert.match(renderToStaticMarkup(view.render()), /无权查看/)
+  assert.equal(button(view.render(), '刷新成绩').props.disabled, false)
 })

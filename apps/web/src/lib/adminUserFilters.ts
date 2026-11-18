@@ -3,7 +3,7 @@ import type { AdminUser } from './adminUsers'
 export interface AdminUserFilters {
   keyword: string
   accountType: 'all' | 'regular' | 'test'
-  role: 'all' | 'admin' | 'student'
+  role: 'all' | 'admin' | 'teacher' | 'student'
   status: 'all' | 'active' | 'disabled'
 }
 
@@ -21,7 +21,8 @@ export function filterAdminUsers(users: readonly AdminUser[], filters: AdminUser
     if (user.accountStatus === 'deleted') return false
     if (filters.accountType === 'test' && !user.isTestAccount) return false
     if (filters.accountType === 'regular' && user.isTestAccount) return false
-    if (filters.role !== 'all' && user.role !== filters.role) return false
+    const identity = user.role === 'admin' ? 'admin' : user.teachingGranted ? 'teacher' : 'student'
+    if (filters.role !== 'all' && identity !== filters.role) return false
     if (filters.status !== 'all' && (user.accountStatus ?? 'active') !== filters.status) return false
     const fields = [user.username, user.displayName, user.school, user.studentId].map(normalize)
     return terms.every((term) => fields.some((field) => field.includes(term)))

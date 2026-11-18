@@ -1,13 +1,19 @@
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { useTeaching } from '../contexts/TeachingContext'
 const MAIN = [
   ['/', '基础题库'],
   ['/arena?role=attack', '攻击题库'],
   ['/arena?role=defense', '防御题库'],
   ['/leaderboard', '排行榜'],
-  ['/classes', '班级'],
+  ['/classes', '我加入的班级'],
   ['/achievements', '成就'],
   ['/profile', '个人资料'],
+  ['/help', '使用帮助'],
+]
+const TEACHING = [
+  ['/teaching', '管理的班级'],
+  ['/teaching/solutions', '我的讲解'],
   ['/help', '使用帮助'],
 ]
 const ADMIN = [
@@ -24,7 +30,9 @@ const ADMIN = [
 ]
 export default function Sidebar() {
   const { isAdmin } = useAuth()
+  const { canTeach, status, refresh } = useTeaching()
   const { pathname, search } = useLocation()
+  const teachingSpace = pathname.startsWith('/teaching')
   const items = (rows: string[][]) =>
     rows.map(([path, label]) => {
       const role = new URLSearchParams(search).get('role')
@@ -32,8 +40,8 @@ export default function Sidebar() {
         ? pathname.startsWith('/arena') && role === path.split('=')[1]
         : path === '/'
           ? pathname === '/' || pathname.startsWith('/question/')
-          : path === '/admin'
-            ? pathname === '/admin'
+          : path === '/admin' || path === '/teaching'
+            ? pathname === path || (path === '/teaching' && pathname.startsWith('/teaching/classes/'))
             : pathname.startsWith(path)
       return (
         <Link key={path} to={path} aria-current={active ? 'page' : undefined} className="sidebar-link">
@@ -44,9 +52,23 @@ export default function Sidebar() {
   return (
     <aside className="app-sidebar">
       <nav aria-label="主要功能">
-        <div className="prd-muted sidebar-caption">题库与账户</div>
-        {items(MAIN)}
+        <div className="prd-muted sidebar-caption">{teachingSpace && canTeach ? '教学空间' : '练习空间'}</div>
+        {items(teachingSpace && canTeach ? TEACHING : MAIN)}
       </nav>
+      {status === 'unavailable' && (
+        <div className="sidebar-access-notice">
+          <p role="status">教学权限暂不可用</p>
+          <button
+            type="button"
+            className="prd-button"
+            onClick={() => {
+              void refresh()
+            }}
+          >
+            重新验证
+          </button>
+        </div>
+      )}
       {isAdmin && (
         <nav aria-label="管理员功能" className="sidebar-admin">
           <div className="prd-muted sidebar-caption">平台管理</div>

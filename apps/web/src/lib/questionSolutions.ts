@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPost } from './api'
+import { apiDelete, apiGet, apiPost, apiPut } from './api'
 
 export interface QuestionSolution {
   id: string
@@ -43,7 +43,40 @@ export interface SolutionCandidate {
   score: number | null
   createdAt: string
 }
+export interface TeachingQuestion {
+  id: string
+  title: string
+  revision: number
+  category: string
+  role: string | null
+}
+export interface TeachingSolution {
+  id: string
+  title: string
+  explanation: string
+  code: string
+  questionId: string
+  questionVersion: number
+  referenceKind: QuestionSolution['referenceKind']
+  published: boolean
+  createdAt: string
+  updatedAt: string
+  question: (TeachingQuestion & { status: string }) | null
+  canEdit: boolean
+}
+export interface TeachingSolutionsPage {
+  scope: 'mine'
+  visibility: 'authenticated'
+  questions: TeachingQuestion[]
+  items: TeachingSolution[]
+  pagination: SolutionPage['pagination']
+}
 export const questionSolutionsApi = {
+  mine: (search = '', page = 1) =>
+    apiGet<TeachingSolutionsPage>(
+      `/teaching/solutions?${new URLSearchParams({ scope: 'mine', search, page: String(page) })}`,
+      15000,
+    ),
   list: (id: string, page = 1) =>
     apiGet<SolutionPage>(`/questions/${encodeURIComponent(id)}/solutions?page=${page}`, 15000),
   candidates: (id: string) =>
@@ -57,7 +90,18 @@ export const questionSolutionsApi = {
       code?: string
       sourceSubmissionId?: string
       referenceKind?: string
+      questionVersion?: number
     },
   ) => apiPost<{ id: string }>(`/questions/${encodeURIComponent(id)}/solutions`, data, 15000),
+  update: (
+    id: string,
+    data: {
+      title?: string
+      explanation?: string
+      code?: string
+      published?: boolean
+      expectedUpdatedAt?: string
+    },
+  ) => apiPut<{ id: string; published: boolean }>(`/solutions/${encodeURIComponent(id)}`, data, 15000),
   withdraw: (id: string) => apiDelete(`/solutions/${encodeURIComponent(id)}`, 15000),
 }

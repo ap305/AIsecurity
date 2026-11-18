@@ -1,0 +1,38 @@
+.workspace-switch {
+  flex-wrap: wrap;
+}
+.workspace-switch a {
+  white-space: nowrap;
+}
+.sidebar-access-notice {
+  padding: 12px 16px;
+  font-size: 12px;
+}
+.sidebar-access-notice p {
+  margin: 0 0 8px;
+}
+@media (max-width: 1080px) {
+  .topbar-nav.workspace-switch {
+    display: flex;
+    gap: 8px;
+  }
+  .workspace-switch a {
+    padding: 5px 8px;
+    font-size: 12px;
+  }
+}
+@media (max-width: 640px) {
+  html:root {
+    --topbar-height: 104px;
+  }
+  .app-topbar {
+    flex-wrap: wrap;
+  }
+  .topbar-nav.workspace-switch {
+    order: 3;
+    width: 100%;
+  }
+  .topbar-account .topbar-user-badge {
+    display: inline-flex;
+  }
+}
