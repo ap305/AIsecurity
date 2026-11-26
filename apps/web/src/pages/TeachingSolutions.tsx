@@ -1,3 +1,4 @@
+import { displayQuestionTitle } from '../lib/questionPresentation'
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ApiError, getAuthToken } from '../lib/api'
@@ -343,7 +344,7 @@ export default function TeachingSolutions() {
               <article className="prd-card teaching-solutions-item" key={row.id}>
                 <h3>{row.title}</h3>
                 <p>
-                  {row.question?.title ?? '题目已不可用'} · 版本 {row.questionVersion}
+                  {row.question ? displayQuestionTitle(row.question) : '题目已不可用'} · 版本 {row.questionVersion}
                 </p>
                 <p className="prd-muted">
                   {row.published
@@ -431,7 +432,7 @@ export default function TeachingSolutions() {
                 <option value="">请选择题目以新建讲解</option>
                 {data.questions.map((q) => (
                   <option key={q.id} value={q.id}>
-                    {q.title} · 版本 {q.revision} · {q.category === 'basic' ? '基础题' : '攻防题'}
+                    {displayQuestionTitle(q)} · 版本 {q.revision} · {q.category === 'basic' ? '基础题' : '攻防题'}
                   </option>
                 ))}
               </select>
@@ -440,7 +441,7 @@ export default function TeachingSolutions() {
             {editor && (
               <form aria-label="讲解编辑器" onSubmit={publish}>
                 <p>
-                  <strong>{editor.question.title}</strong> · 版本 {editor.question.revision}
+                  <strong>{displayQuestionTitle(editor.question)}</strong> · 版本 {editor.question.revision}
                 </p>
                 {stale && (
                   <p role="alert">题目版本已变化或未发布。当前讲解仅可预览，请选择当前已发布题目新建讲解。</p>

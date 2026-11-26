@@ -1,5 +1,6 @@
 const API_BASE = '/api'
 export const TOKEN_KEY = 'aisec_token'
+export const DEMO_TOKEN_KEY = 'aisec_demo_token'
 export const AUTH_TIMEOUT_MS = 10000
 // Deny-only fence: failed storage mutations must never fall back to a residual credential.
 let credentialsBlocked = false
@@ -21,20 +22,39 @@ export class ApiError extends Error {
   }
 }
 
-export function getAuthToken(): string | null {
+function storedToken(key: string): string | null {
   if (credentialsBlocked) return null
   try {
-    return localStorage.getItem(TOKEN_KEY)
+    return localStorage.getItem(key)
   } catch {
     return null
   }
 }
 
+export function isDemoToken(value: string | null): boolean {
+  return !!value && /^demo_[a-f0-9]{64}$/.test(value)
+}
+
+export function getSessionToken(): string | null {
+  const demo = storedToken(DEMO_TOKEN_KEY)
+  return isDemoToken(demo) ? demo : storedToken(TOKEN_KEY)
+}
+
+// Used by ordinary business requests, including direct downloads and multipart uploads.
+export function getAuthToken(): string | null {
+  return isDemoToken(storedToken(DEMO_TOKEN_KEY)) ? null : storedToken(TOKEN_KEY)
+}
+
 export function setAuthToken(token: string | null): boolean {
   try {
-    if (token) localStorage.setItem(TOKEN_KEY, token)
-    else localStorage.removeItem(TOKEN_KEY)
-    const stored = localStorage.getItem(TOKEN_KEY)
+    const demo = isDemoToken(token)
+    const key = demo ? DEMO_TOKEN_KEY : TOKEN_KEY
+    const other = demo ? TOKEN_KEY : DEMO_TOKEN_KEY
+    if (localStorage.getItem(other) !== null) localStorage.removeItem(other)
+    if (token) localStorage.setItem(key, token)
+    else localStorage.removeItem(key)
+    if (localStorage.getItem(other) !== null) throw new Error('Credential storage mismatch')
+    const stored = localStorage.getItem(key)
     if (stored !== token && !(token === null && !stored)) throw new Error('Credential storage mismatch')
     credentialsBlocked = false
     return true
@@ -86,7 +106,7 @@ export function subscribeAuthFailures(listener: (error: ApiError, token: string)
 export function reportAuthFailure(error: unknown, token: string | null): void {
   if (
     token &&
-    token === getAuthToken() &&
+    token === getSessionToken() &&
     error instanceof ApiError &&
     ((error.code === 40100 && [200, 401].includes(error.status)) ||
       (error.code === 42801 && [200, 428].includes(error.status)))
@@ -96,18 +116,23 @@ export function reportAuthFailure(error: unknown, token: string | null): void {
 }
 
 export function assertCurrentToken(token: string | null): void {
-  if (token !== getAuthToken()) throw new Error('登录账号已变化，请在当前账号下重试。')
+  if (token !== getSessionToken()) throw new Error('登录账号已变化，请在当前账号下重试。')
 }
 
 function authTimeout(path: string): number | undefined {
-  return path.startsWith('/auth/') ||
+  return path.startsWith('/auth/') || path.startsWith('/demo/auth/') ||
     /^\/admin\/(?:auth-events|users(?:\/[^/]+\/(?:password|password-reset))?)(?:\?|$)/.test(path)
     ? AUTH_TIMEOUT_MS
     : undefined
 }
 
 async function request<T>(path: string, options: RequestInit, timeoutMs = authTimeout(path)): Promise<T> {
-  const token = getAuthToken()
+  const token = getSessionToken()
+  const demoPath = path.startsWith('/demo/')
+  const demoLogin = path === '/demo/auth/login'
+  if (token && isDemoToken(token) !== demoPath && !demoLogin && path !== '/auth/login')
+    throw new Error('请使用与当前身份对应的入口。')
+  const bearer = demoLogin || (token && isDemoToken(token) !== demoPath) ? null : token
   const controller = timeoutMs == null ? null : new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
@@ -115,7 +140,7 @@ async function request<T>(path: string, options: RequestInit, timeoutMs = authTi
       const res = await fetch(`${API_BASE}${path}`, {
         ...options,
         headers: authHeaders(
-          token,
+          bearer,
           options.body instanceof FormData
             ? undefined
             : options.body
@@ -123,6 +148,7 @@ async function request<T>(path: string, options: RequestInit, timeoutMs = authTi
               : undefined,
         ),
         cache: 'no-store',
+        ...(demoPath ? { credentials: 'omit', redirect: 'error' } as const : {}),
         ...(controller ? { signal: controller.signal } : {}),
       })
       return handle<T>(res)
@@ -142,7 +168,7 @@ async function request<T>(path: string, options: RequestInit, timeoutMs = authTi
     return data
   } catch (error) {
     assertCurrentToken(token)
-    if (path !== '/auth/login' && path !== '/auth/register') reportAuthFailure(error, token)
+    if (!demoLogin && path !== '/auth/login' && path !== '/auth/register') reportAuthFailure(error, bearer)
     throw error
   } finally {
     clearTimeout(timer)

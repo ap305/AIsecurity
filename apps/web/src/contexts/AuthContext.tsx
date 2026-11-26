@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { subscribeAuthFailures, TOKEN_KEY } from '../lib/api'
+import { subscribeAuthFailures, DEMO_TOKEN_KEY, TOKEN_KEY } from '../lib/api'
 import { AuthSession } from '../lib/authSession'
 export type { AuthUser } from '../lib/authSession'
 
@@ -36,7 +36,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const unsubscribe = subscribeAuthFailures(session.onAuthFailure)
     const sync = (event: StorageEvent) => {
       if (event.storageArea && event.storageArea !== localStorage) return
-      if (event.key === TOKEN_KEY || event.key === null) void session.syncStorage(true)
+      if (event.key === TOKEN_KEY || event.key === DEMO_TOKEN_KEY || event.key === null) void session.syncStorage(true)
     }
     const onFocus = () => {
       void session.syncStorage()

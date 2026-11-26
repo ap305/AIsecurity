@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { displayQuestionTitle } from '../../lib/questionPresentation'
 import { prdApi, type TeacherLease } from '../../lib/prdApi'
 import { teacherLeaseControls } from '../../components/TeacherLeasePanel'
 export default function TeacherLeaseManager() {
@@ -77,7 +78,7 @@ export default function TeacherLeaseManager() {
                 <tr key={lease.id}>
                   <td>{lease.username ?? lease.userId ?? '—'}</td>
                   <td>
-                    {lease.questionTitle ?? lease.questionId ?? '—'}
+                    {lease.questionTitle ? displayQuestionTitle({ title: lease.questionTitle, id: lease.questionId }) : lease.questionId ?? '—'}
                     <div className="prd-muted">{lease.scope}</div>
                   </td>
                   <td>

@@ -5,6 +5,61 @@ import { submitMaterials } from './prdApi'
 import * as auth from './authSession'
 
 const student = { id: 'a', username: 'first', displayName: 'First', role: 'student', tier: 'bronze' }
+
+test('demo login, session restoration and logout use only the dedicated namespace and token storage', async (t) => {
+  const values = storage(t)
+  const token = 'demo_' + '1'.repeat(64)
+  const demo = { ...student, id: 'demo', role: 'demo' }
+  const requests: Array<[string, string | null]> = []
+  setAuthToken('prior-student-token')
+  t.mock.method(globalThis, 'fetch', async (url: RequestInfo | URL, options?: RequestInit) => {
+    const path = String(url)
+    requests.push([path, new Headers(options?.headers).get('Authorization')])
+    assert.equal(options?.credentials, 'omit')
+    return Response.json({ code: 0, data: path.endsWith('logout') ? { ok: true } : { token, user: demo } })
+  })
+  const session = new auth.AuthSession()
+  await assert.rejects(session.login('demo', 'demo-example-only', 'demo'), /当前浏览器已登录/)
+  assert.equal(requests.length, 0)
+  assert.equal(values.get('aisec_token'), 'prior-student-token')
+  setAuthToken(null)
+  await session.login('demo', 'demo-example-only', 'demo')
+  assert.equal(values.get('aisec_demo_token'), token)
+  assert.equal(values.has('aisec_token'), false)
+  assert.equal(getAuthToken(), null)
+  const restored = new auth.AuthSession()
+  await restored.restore()
+  assert.equal(restored.snapshot.user?.role, 'demo')
+  for (const path of ['/admin/users', '/questions', '/submissions']) {
+    await assert.rejects(apiGet(path), /身份/)
+    await assert.rejects(apiPost(path, {}), /身份/)
+  }
+  await restored.logout()
+  assert.equal(values.has('aisec_demo_token'), false)
+  assert.deepEqual(requests, [
+    ['/api/demo/auth/login', null],
+    ['/api/demo/auth/me', 'Bearer ' + token],
+    ['/api/demo/auth/logout', 'Bearer ' + token],
+  ])
+})
+
+test('a demo endpoint cannot establish another role or a formal API credential', async (t) => {
+  const values = storage(t)
+  const session = new auth.AuthSession()
+  const token = 'demo_' + '0'.repeat(64)
+  for (const data of [
+    { token, user: { ...student, role: 'admin' } },
+    { token: 'ordinary-token', user: { ...student, role: 'demo' } },
+  ]) {
+    const m = t.mock.method(globalThis, 'fetch', async () => Response.json({ code: 0, data }))
+    await assert.rejects(session.login('demo', 'demo-example-only', 'demo'))
+    assert.equal(session.snapshot.user, null)
+    assert.equal(values.has('aisec_token'), false)
+    assert.equal(values.has('aisec_demo_token'), false)
+    m.mock.restore()
+  }
+})
+
 function storage(t: { after(fn: () => void): void }) {
   const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
   const values = new Map<string, string>()

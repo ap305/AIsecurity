@@ -1,3 +1,4 @@
+import { displayQuestionTitle } from '../../lib/questionPresentation'
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { ApiError, apiGet } from '../../lib/api'
@@ -276,7 +277,7 @@ function QuestionHistory({ id }: { id: string }) {
       )}
       {data && (
         <section aria-labelledby="evaluation-question">
-          <h2 id="evaluation-question">{data.question.title}</h2>
+          <h2 id="evaluation-question">{displayQuestionTitle(data.question)}</h2>
           <p className="prd-muted">
             {data.question.id} · 当前题目版本 v{data.question.revision}
           </p>

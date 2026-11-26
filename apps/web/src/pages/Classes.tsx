@@ -1,3 +1,4 @@
+import { displayQuestionTitle } from '../lib/questionPresentation'
 import React from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
@@ -744,7 +745,7 @@ export function ClassScores({ classId, refresh = 0 }: { classId: string; refresh
             <option value="">全部题目</option>
             {questions.map((q) => (
               <option key={q.id} value={q.id}>
-                {q.moduleCode}-{q.number} {q.title}
+                {q.moduleCode}-{q.number} {displayQuestionTitle(q)}
               </option>
             ))}
           </select>
@@ -814,7 +815,7 @@ export function ClassScores({ classId, refresh = 0 }: { classId: string; refresh
                       <th key={q.id}>
                         {q.moduleCode}-{q.number}
                         <br />
-                        {q.title}
+                        {displayQuestionTitle(q)}
                         <small>
                           {q.category === 'basic' ? '基础' : q.role === 'attack' ? '攻击' : '防御'}
                         </small>

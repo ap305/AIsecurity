@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { defaultDefinition, type QuestionRecord } from './prdApi'
+import { displayQuestionTitle, teachingDifficulty } from './questionPresentation'
 import {
   filterHallQuestions,
   hallLibraryQuestions,
@@ -79,7 +80,7 @@ test('zero is a scored result while running/error attempts retain their distinct
     'running',
   )
 })
-test('old scenario links and fixed roles combine with search, type and score filters', () => {
+test('old scenario links and fixed roles combine with search and score filters', () => {
   const definition = defaultDefinition()
   definition.kind = 'agent'
   const rows = [
@@ -129,7 +130,7 @@ test('invalid and stale page positions stay inside the filtered result range', (
   assert.deepEqual(hallPage('2', 0, 20), { page: 1, pages: 1 })
 })
 
-test('old scenario links map to the new scene while independent domain filters stay precise', () => {
+test('old scene links keep supported filters and ignore retired domain and type attributes', () => {
   const rows = ['attack', 'defense'].map((role) =>
     question(`V3-261012-${role === 'attack' ? 'A' : 'D'}01`, {
       category: 'adversarial',
@@ -152,17 +153,56 @@ test('old scenario links map to the new scene while independent domain filters s
     rows.map(q => hallScene(q)),
     ['deep-learning', 'deep-learning', 'agent'],
   )
-  const params = hallFilterParams(new URLSearchParams('scenario=V3-261012-ML01&group=模型安全'), 'adversarial')
+  const params = hallFilterParams(new URLSearchParams('scenario=V3-261012-ML01&group=模型安全&module=AI_SECURITY_V3&kind=model&page=2'), 'adversarial')
   assert.equal(params.get('scene'), 'deep-learning')
   assert.equal(params.get('scenario'), null)
-  assert.equal(params.get('group'), '模型安全')
+  assert.equal(params.get('group'), null)
+  assert.equal(params.get('module'), null)
+  assert.equal(params.get('kind'), null)
+  assert.equal(params.get('page'), '2')
   assert.equal(filterHallQuestions(rows, params).length, 2)
   params.set('scene', 'agent')
-  assert.equal(filterHallQuestions(rows, params).length, 0)
+  assert.equal(filterHallQuestions(rows, params).length, 1)
   assert.deepEqual(
-    filterHallQuestions(rows, new URLSearchParams('group=模型安全&role=defense&q=模型安全')).map((q) => q.id),
-    ['V3-261012-D01'],
+    filterHallQuestions(rows, new URLSearchParams('q=模型安全')),
+    [],
   )
+})
+
+test('teaching difficulty filters and sorts the 60 imported role entries by their published revisions', () => {
+  const rows: QuestionRecord[] = []
+  for (let number = 1; number <= 31; number++) {
+    if (number === 29) continue
+    for (const role of ['A', 'D']) {
+      const code = role + String(number).padStart(2, '0')
+      rows.push(question('V3-261012-' + code, {
+        category: 'adversarial', number, difficulty: 'L3',
+        revision: ['A02', 'A08', 'D09', 'A28'].includes(code) ? 3 : 2,
+      }))
+    }
+  }
+  const levels = ['L1', 'L2', 'L3']
+  const counts = levels.map(difficulty => filterHallQuestions(rows, new URLSearchParams({difficulty})).length)
+  assert.deepEqual(counts, [16, 24, 20])
+  const sorted = filterHallQuestions(rows, new URLSearchParams('sort=difficulty')).map(teachingDifficulty)
+  assert.deepEqual(sorted, [...sorted].sort())
+  assert.equal(teachingDifficulty(rows[0]), 'L1')
+  assert.equal(teachingDifficulty({ ...rows[0], revision: 3 }), 'L3')
+  assert.equal(teachingDifficulty({ ...rows[0], difficulty: 'L2' }), 'L2')
+  assert.equal(teachingDifficulty({ ...rows[0], category: 'basic' }), 'L3')
+  assert.equal(teachingDifficulty({ ...rows[0], id: 'custom' }), 'L3')
+  assert(rows.every(q => q.difficulty === 'L3'))
+})
+
+test('arena headings use one full-width role suffix and keep original titles and basic questions intact', () => {
+  for (const title of ['标签翻转攻击实验 · 攻击', '标签翻转攻击实验(攻击)', '标签翻转攻击实验（攻击）', '标签翻转攻击实验']) {
+    const q = question('V3-261012-A01', { title, category: 'adversarial', role: 'attack' })
+    assert.equal(displayQuestionTitle(q), '标签翻转攻击实验（攻击）')
+    assert.equal(q.title, title)
+  }
+  assert.equal(displayQuestionTitle({ title: '自定义 · 攻击', role: 'defense' }), '自定义（防御）')
+  assert.equal(displayQuestionTitle({ title: '题目', questionId: 'V3-261012-D04' }), '题目（防御）')
+  assert.equal(displayQuestionTitle({ title: '评论 · 攻击', category: 'basic' }), '评论 · 攻击')
 })
 
 test('course scene filters partition the 60 official role entries independently of title and exercise kind', () => {
@@ -189,6 +229,11 @@ test('course scene filters partition the 60 official role entries independently 
   }
   const unknown = question('custom-general', { category: 'adversarial', moduleCode: 'GENERAL' })
   assert.equal(hallScene(unknown), undefined)
+  for (const key of Object.keys(hallSceneLabels)) {
+    const authored = { ...unknown, moduleCode: key, difficulty: 'L2' }
+    assert.equal(hallScene(authored), key)
+    assert.deepEqual(filterHallQuestions([authored], new URLSearchParams({ scene: key, difficulty: 'L2' })), [authored])
+  }
   assert.deepEqual(filterHallQuestions([unknown], new URLSearchParams()), [unknown])
   assert.equal(hallScene(question('V3-261012-B01')), undefined)
   assert.equal(hallFilterParams(new URLSearchParams('scene=agent&group=模型安全'), 'basic').toString(), '')

@@ -65,6 +65,16 @@ test('logout revokes the copied credential at all shared auth entry points, not 
   assert.doesNotMatch(JSON.stringify(revoked), new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
 })
 
+test('standalone demo credentials never authenticate a production identity', async () => {
+  const token = 'demo_' + 'a'.repeat(64)
+  assert.equal(auth.verifyToken(token), null)
+  for (const route of ['/auth/me', '/admin/users', '/admin/api-pool']) {
+    const result = await request(route, 'GET', undefined, token)
+    assert.equal(result.status, 401)
+    assert.equal(result.json.data, null)
+  }
+})
+
 test('admin logout is enforced by requireAdminUser and middleware; ordinary forbidden remains 403', async () => {
   const token = await login('securityadmin', password, 'admin')
   assert.equal((await request('/auth/logout', 'POST', {}, token)).status, 200)

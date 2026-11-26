@@ -1,0 +1,32 @@
+[Unit]
+Description=AI security platform read-only demonstration login
+After=network.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+WorkingDirectory=/opt/ai-security-demo
+ExecStart=/usr/bin/python3 -B -E -s /opt/ai-security-demo/server.py
+Environment=HOST=127.0.0.1
+Environment=PORT=18476
+Environment=DEMO_CREDENTIAL_FILE=/run/credentials/ai-security-demo.service/demo.json
+LoadCredential=demo.json:/etc/ai-security-demo/credential.json
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+UMask=0077
+MemoryMax=256M
+TasksMax=80
+
+[Install]
+WantedBy=multi-user.target

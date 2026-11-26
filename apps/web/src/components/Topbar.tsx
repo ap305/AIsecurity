@@ -36,7 +36,7 @@ export default function Topbar() {
 
   return (
     <header className="app-topbar">
-      <Link to="/" className="topbar-brand" aria-label="AI安全教学实验系统首页">
+      <Link to="/" className="topbar-brand" aria-label="ai安全教学实验平台首页">
         <svg className="topbar-mark" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path
             d="M12 3 4.5 6v5.5c0 4.2 2.9 7.6 7.5 9.5 4.6-1.9 7.5-5.3 7.5-9.5V6L12 3Z"
@@ -55,7 +55,7 @@ export default function Topbar() {
           <strong>
             AI-SEC <span>PLATFORM</span>
           </strong>
-          <small>AI安全教学实验系统</small>
+          <small>ai安全教学实验平台</small>
         </span>
       </Link>
 

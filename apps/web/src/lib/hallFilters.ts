@@ -1,5 +1,6 @@
 import type { HallCategory, QuestionRecord } from './prdApi'
 import { ARENA_TEACHING_SCENARIOS, resolveArenaScenario } from './arenaTeaching'
+import { displayQuestionTitle, teachingDifficulty } from './questionPresentation'
 
 const moduleLabels: Record<string, string> = {
   M1: '对抗攻击与规避',
@@ -22,6 +23,9 @@ export const hallSceneLabels = {
   agent: '智能体',
 } as const
 type HallScene = keyof typeof hallSceneLabels
+export function isHallScene(value: unknown): value is HallScene {
+  return typeof value === 'string' && Object.hasOwn(hallSceneLabels, value)
+}
 
 // The course uses the same scenario ID for the two roles. Both the LLM and
 // the agent exercises use definition.kind="agent", so kind cannot separate them.
@@ -43,6 +47,7 @@ function sceneFromId(id: string | null | undefined): HallScene | undefined {
 }
 export function hallScene(question: QuestionRecord, scenario = hallScenario(question)): HallScene | undefined {
   if (question.category !== 'adversarial' && question.category !== 'security') return undefined
+  if (isHallScene(question.moduleCode)) return question.moduleCode
   const scene = sceneFromId(scenario?.id ?? question.id)
   if (scene) return scene
   if (deepLearningModules.has(question.moduleCode ?? '')) return 'deep-learning'
@@ -55,12 +60,17 @@ export function hallFilterParams(params: URLSearchParams, category: HallCategory
     next.delete('role')
     next.delete('group')
   } else {
+    // These options belong to the retired taxonomy. Old bookmarks still keep
+    // their supported scene, search, status, role, difficulty and page.
+    next.delete('kind')
+    next.delete('group')
+    next.delete('module')
     if (!['attack', 'defense'].includes(next.get('role') || '')) next.delete('role')
     if (!next.has('scene')) {
       const scene = sceneFromId(next.get('scenario'))
       if (scene) next.set('scene', scene)
     }
-    if (!Object.hasOwn(hallSceneLabels, next.get('scene') || '')) next.delete('scene')
+    if (!isHallScene(next.get('scene'))) next.delete('scene')
   }
   next.delete('scenario')
   if (/^M[1-5]$/i.test(next.get('module') || '')) next.delete('module')
@@ -89,17 +99,17 @@ export function questionLibraryLabel(
   return libraryTypes[questionLibraryType(question)] || '攻防题'
 }
 export function questionModuleLabel(code?: string | null): string {
+  if (isHallScene(code)) return hallSceneLabels[code]
   return code ? moduleLabels[code] || code : '基础练习'
 }
 export function hallScenario(question: QuestionRecord) {
   const legacy = resolveArenaScenario(question)
-  if (legacy) return { id: legacy.id, title: legacy.title, group: legacy.group }
+  if (legacy) return { id: legacy.id, title: legacy.title }
   const id = question.scenarioId ?? question.definition.scenarioId
   if (!id || !['adversarial', 'security'].includes(question.category)) return undefined
   return {
     id,
     title: question.title.replace(/\s*(?:[（(](?:攻击|防御)[）)]|·\s*(?:攻击|防御))$/, ''),
-    group: question.moduleCode ? questionModuleLabel(question.moduleCode) : '其他攻防',
   }
 }
 export const questionKinds: Record<string, string> = {
@@ -120,6 +130,7 @@ export function questionAttemptState(question: QuestionRecord): string {
 export function filterHallQuestions(questions: QuestionRecord[], params: URLSearchParams) {
   const search = (params.get('q') || '').trim().toLocaleLowerCase()
   const selected = questions.filter((q) => {
+    const basic = q.category === 'basic'
     const scenario = hallScenario(q)
     const scene = hallScene(q, scenario)
     return (
@@ -127,25 +138,22 @@ export function filterHallQuestions(questions: QuestionRecord[], params: URLSear
         [
           q.id,
           q.number,
-          q.title,
-          q.moduleCode,
-          questionModuleLabel(q.moduleCode),
+          displayQuestionTitle(q),
+          ...(basic ? [q.moduleCode, questionModuleLabel(q.moduleCode), ...(q.tags || [])] : []),
           scenario?.title,
           scene && hallSceneLabels[scene],
-          ...(q.tags || []),
         ]
           .join(' ')
           .toLocaleLowerCase()
           .includes(search)) &&
-      (!params.get('difficulty') || q.difficulty === params.get('difficulty')) &&
-      (!params.get('kind') || q.definition.kind === params.get('kind')) &&
+      (!params.get('difficulty') || teachingDifficulty(q) === params.get('difficulty')) &&
+      (!basic || !params.get('kind') || q.definition.kind === params.get('kind')) &&
       (!params.get('role') || (q.role || q.definition.role) === params.get('role')) &&
-      (!params.get('module') ||
+      (!basic || !params.get('module') ||
         /^M[1-5]$/i.test(params.get('module')!) ||
         q.moduleCode === params.get('module')) &&
       (!params.get('state') || questionAttemptState(q) === params.get('state')) &&
-      (!params.get('scene') || scene === params.get('scene')) &&
-      (!params.get('group') || scenario?.group === params.get('group'))
+      (!params.get('scene') || scene === params.get('scene'))
     )
   })
   const order = params.get('sort') || 'number'
@@ -155,8 +163,10 @@ export function filterHallQuestions(questions: QuestionRecord[], params: URLSear
       if (a.myScore != null && b.myScore == null) return -1
       if (a.myScore !== b.myScore) return (b.myScore || 0) - (a.myScore || 0)
     }
-    if (order === 'difficulty' && a.difficulty !== b.difficulty)
-      return a.difficulty.localeCompare(b.difficulty)
+    if (order === 'difficulty') {
+      const byDifficulty = teachingDifficulty(a).localeCompare(teachingDifficulty(b))
+      if (byDifficulty) return byDifficulty
+    }
     return (
       (a.number || 0) - (b.number || 0) ||
       (a.moduleCode || '').localeCompare(b.moduleCode || '') ||

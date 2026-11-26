@@ -1,16 +1,11 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { apiGet, apiPut } from '../../lib/api'
-import { questionModuleLabel, isCurrentLibraryQuestion } from '../../lib/hallFilters'
+import { questionModuleLabel, hallScene, hallSceneLabels, isCurrentLibraryQuestion } from '../../lib/hallFilters'
+import { difficultyLabels, displayQuestionTitle, teachingDifficulty } from '../../lib/questionPresentation'
+import { normalizeQuestion, type QuestionRecord } from '../../lib/prdApi'
 
-interface ReviewQuestion {
-  id: string
-  moduleCode: string
-  number: number
-  title: string
-  type: string
-  difficulty: string
-  category: 'basic' | 'security'
+interface ReviewQuestion extends QuestionRecord {
   status: 'published' | 'draft' | 'review' | 'pending'
   testConfig: string | null
   createdAt: string
@@ -49,7 +44,7 @@ export default function QuestionReview() {
     setError(null)
     try {
       const data = await apiGet<ReviewQuestion[]>('/admin/questions?status=review')
-      setReviews(data.filter(isCurrentLibraryQuestion))
+      setReviews(data.filter(isCurrentLibraryQuestion).map((row) => ({ ...row, ...normalizeQuestion(row), status: row.status })))
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载失败')
     } finally {
@@ -208,7 +203,7 @@ export default function QuestionReview() {
               }}
             >
               <div style={{ minWidth: 0, flex: 1 }}>
-                <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>{item.title}</h3>
+                <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>{displayQuestionTitle(item)}</h3>
                 <p
                   style={{
                     fontSize: 12,
@@ -220,12 +215,18 @@ export default function QuestionReview() {
                   }}
                 >
                   <span style={{ fontFamily: 'var(--font-mono)' }}>{item.id}</span>
-                  <span>
-                    题库领域: <strong>{questionModuleLabel(item.moduleCode)}</strong>
-                  </span>
-                  <span>类型: {TYPE_LABELS[item.type] ?? item.type}</span>
-                  <span>难度: {DIFFICULTY_LABELS[item.difficulty] ?? item.difficulty}</span>
-                  <span>分类: {item.category === 'security' ? '安全' : '基础'}</span>
+                  {item.category === 'basic' ? (
+                    <>
+                      <span>题库领域: <strong>{questionModuleLabel(item.moduleCode)}</strong></span>
+                      {item.type && <span>类型: {TYPE_LABELS[item.type] ?? item.type}</span>}
+                      <span>难度: {DIFFICULTY_LABELS[item.difficulty] ?? item.difficulty}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>场景: {hallSceneLabels[hallScene(item)!] ?? '未分类'}</span>
+                      <span>难度: {difficultyLabels[teachingDifficulty(item)] ?? item.difficulty}</span>
+                    </>
+                  )}
                   <span>更新: {formatDate(item.updatedAt)}</span>
                 </p>
               </div>

@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react'
+import { difficultyLabels, displayQuestionTitle, importedTeachingLevel } from '../../lib/questionPresentation'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
   libraryTypes,
   questionLibraryLabel,
   questionLibraryType,
   isCurrentLibraryQuestion,
+  hallScene,
+  hallSceneLabels,
+  isHallScene,
 } from '../../lib/hallFilters'
 import { apiDelete, apiGet, apiPost, apiPostMultipart, apiPut } from '../../lib/api'
 import {
@@ -105,6 +109,10 @@ export default function QuestionEditor() {
       setError('题目 ID 仅支持字母、数字、下划线和连字符。')
       return
     }
+    if (!editingId && form.category === 'adversarial' && !isHallScene(form.moduleCode)) {
+      setError('请为新建对抗题选择教学场景。')
+      return
+    }
     if (!definitionValid) {
       setError('请先修正评测参数 JSON。')
       return
@@ -160,7 +168,7 @@ export default function QuestionEditor() {
     }
   }
   const archive = async (question: QuestionRecord) => {
-    if (!window.confirm(`将“${question.title}”下架并保留历史记录？`)) return
+    if (!window.confirm(`将“${displayQuestionTitle(question)}”下架并保留历史记录？`)) return
     setBusy(true)
     try {
       await apiDelete(`/admin/questions/${encodeURIComponent(question.id)}`)
@@ -264,14 +272,35 @@ export default function QuestionEditor() {
               <select
                 className="prd-input"
                 value={form.category}
-                onChange={(e) => patch({ category: e.target.value as HallCategory })}
+                onChange={(e) => patch({
+                  category: e.target.value as HallCategory,
+                  ...(!editingId ? { moduleCode: 'GENERAL' } : {}),
+                })}
               >
                 <option value="basic">基础题库</option>
-                <option value="adversarial">攻防题库</option>
+                <option value="adversarial">对抗题库</option>
               </select>
             </label>
+            {form.category === 'adversarial' && (
+              <label className="prd-label">
+                教学场景
+                {editingId ? (
+                  <span className="prd-input">{hallSceneLabels[hallScene(form)!] ?? '未分类'}</span>
+                ) : (
+                  <select
+                    className="prd-input"
+                    required
+                    value={isHallScene(form.moduleCode) ? form.moduleCode : ''}
+                    onChange={(e) => patch({ moduleCode: e.target.value })}
+                  >
+                    <option value="">请选择场景</option>
+                    {Object.entries(hallSceneLabels).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+                  </select>
+                )}
+              </label>
+            )}
             <label className="prd-label">
-              难度
+              {editingId && form.category === 'adversarial' ? '版本配置难度' : '难度'}
               <select
                 className="prd-input"
                 value={form.difficulty}
@@ -281,6 +310,9 @@ export default function QuestionEditor() {
                 <option value="L2">进阶</option>
                 <option value="L3">挑战</option>
               </select>
+              {original && importedTeachingLevel(original) && (
+                <small className="prd-muted">本版题库教学分级为{difficultyLabels[importedTeachingLevel(original)!]}，发布新版本时使用所选难度。</small>
+              )}
             </label>
             <label className="prd-label">
               题库类型
@@ -454,13 +486,13 @@ export default function QuestionEditor() {
                 <tbody>
                   {questions
                     .filter((q) => !library || questionLibraryType(q) === library)
-                    .filter((q) => `${q.id} ${q.title}`.toLowerCase().includes(search.toLowerCase()))
+                    .filter((q) => `${q.id} ${displayQuestionTitle(q)}`.toLowerCase().includes(search.toLowerCase()))
                     .map((q) => (
                       <tr key={q.id}>
                         <td>
                           {q.id}
                           <br />
-                          {q.title}
+                          {displayQuestionTitle(q)}
                         </td>
                         <td>{questionLibraryLabel(q)}</td>
                         <td>{q.status}</td>

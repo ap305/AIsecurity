@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { prdApi, statusLabel, type HallCategory, type QuestionRecord } from '../lib/prdApi'
+import { difficultyLabels, difficultyGuide, displayQuestionTitle, teachingDifficulty } from '../lib/questionPresentation'
 import {
   filterHallQuestions,
   hallPage,
-  hallScenario,
   hallScene,
   hallSceneLabels,
   questionAttemptState,
@@ -16,7 +16,6 @@ import {
 } from '../lib/hallFilters'
 import './QuestionHall.css'
 
-const difficulties: Record<string, string> = { L1: '入门', L2: '进阶', L3: '挑战' }
 const attemptStates: Record<string, string> = {
   not_submitted: '未提交',
   running: '评测中',
@@ -92,23 +91,13 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
   const visible = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
   useEffect(() => {
     if (filterParams.toString() !== params.toString()) {
-      const next = new URLSearchParams(filterParams)
-      next.delete('page')
-      setParams(next, { replace: true })
+      setParams(filterParams, { replace: true })
     }
   }, [params, setParams, filterParams])
-  const groupChoices = useMemo(() => {
-    const choices: Record<string, string> = {}
-    for (const question of libraryQuestions) {
-      const group = hallScenario(question)?.group
-      if (group) choices[group] = group
-    }
-    return choices
-  }, [libraryQuestions])
   const attempted = libraryQuestions.filter((q) => questionAttemptState(q) !== 'not_submitted').length
   const scored = libraryQuestions.filter((q) => q.myScore != null).length
   const hasFilters = filterParams.size > 0
-  const filterCount = ['q', 'difficulty', 'kind', 'state', 'role', 'group']
+  const filterCount = ['q', 'difficulty', 'kind', 'state', 'role']
     .filter((name) => filterParams.get(name)).length
   const select = (name: string, label: string, choices: Record<string, string>) => (
     <label className="hall-filter">
@@ -116,6 +105,7 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
       <select
         className="prd-input"
         aria-label={label}
+        aria-describedby={adversarial && name === 'difficulty' ? 'hall-difficulty-guide' : undefined}
         value={params.get(name) || ''}
         onChange={(e) => updateFilter(name, e.target.value)}
       >
@@ -204,15 +194,11 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
               onChange={(e) => updateFilter('q', e.target.value)}
             />
           </label>
-          {select('difficulty', '难度', difficulties)}
-          {select('kind', '题型', questionKinds)}
+          {select('difficulty', '难度', difficultyLabels)}
+          {!adversarial && select('kind', '题型', questionKinds)}
           {select('state', '状态', attemptStates)}
-          {adversarial && (
-            <>
-              {select('group', '领域', groupChoices)}
-              {select('role', '角色', { attack: '攻击', defense: '防御' })}
-            </>
-          )}
+          {adversarial && select('role', '角色', { attack: '攻击', defense: '防御' })}
+          {adversarial && <small id="hall-difficulty-guide" className="hall-difficulty-guide">{difficultyGuide}</small>}
         </section>
       </div>
       <div className="hall-table-heading">
@@ -260,16 +246,16 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
                 <th scope="col">状态</th>
                 <th scope="col">题目</th>
                 {adversarial && <th scope="col">固定角色</th>}
-                <th scope="col">难度 / 题型</th>
+                <th scope="col">{adversarial ? '难度' : '难度 / 题型'}</th>
                 <th scope="col">{adversarial ? '当前成绩' : '我的最高分'}</th>
               </tr>
             </thead>
             <tbody>
               {visible.map((q) => {
                 const state = questionAttemptState(q)
-                const scenario = hallScenario(q)
-                const scene = adversarial ? hallScene(q, scenario) : undefined
+                const scene = adversarial ? hallScene(q) : undefined
                 const role = q.role || q.definition.role
+                const difficulty = teachingDifficulty(q)
                 return (
                   <tr key={q.id}>
                     <td>
@@ -287,12 +273,15 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
                         to={`${adversarial ? '/arena' : '/question'}/${encodeURIComponent(q.id)}`}
                       >
                         <span className="hall-question-number">{q.id}</span>
-                        <strong>{q.title}</strong>
+                        <strong>{displayQuestionTitle(q)}</strong>
                       </Link>
                       <div className="hall-question-meta">
-                        {scene && `${hallSceneLabels[scene]} · `}
-                        {scenario?.group || questionModuleLabel(q.moduleCode)}
-                        {q.tags?.length ? ` · ${q.tags.join(' / ')}` : ''}
+                        {adversarial ? (scene && hallSceneLabels[scene]) : (
+                          <>
+                            {questionModuleLabel(q.moduleCode)}
+                            {q.tags?.length ? ` · ${q.tags.join(' / ')}` : ''}
+                          </>
+                        )}
                       </div>
                     </td>
                     {adversarial && (
@@ -307,12 +296,12 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
                       </td>
                     )}
                     <td>
-                      <span className={`hall-difficulty hall-difficulty-${q.difficulty}`}>
-                        {difficulties[q.difficulty] || q.difficulty}
+                      <span className={`hall-difficulty hall-difficulty-${difficulty}`}>
+                        {difficultyLabels[difficulty] || difficulty}
                       </span>
-                      <div className="hall-question-meta">
+                      {!adversarial && <div className="hall-question-meta">
                         {questionKinds[q.definition.kind] || q.definition.kind}
-                      </div>
+                      </div>}
                     </td>
                     <td className="hall-score">
                       {q.myScore == null ? '—' : `${q.myScore.toFixed(2)}${adversarial ? '%' : ''}`}

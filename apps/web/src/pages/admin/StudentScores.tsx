@@ -1,3 +1,4 @@
+import { displayQuestionTitle } from '../../lib/questionPresentation'
 import { useEffect, useState, type FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { apiGet } from '../../lib/api'
@@ -99,7 +100,7 @@ function QuestionRows({ questions }: { questions: QuestionScore[] }) {
           {questions.map((question) => (
             <tr key={question.questionId}>
               <td>
-                <strong>{question.title}</strong>
+                <strong>{displayQuestionTitle(question)}</strong>
                 <div className="student-scores-secondary">
                   {question.moduleCode ? `${questionModuleLabel(question.moduleCode)} · ` : ''}
                   {question.number != null ? `第 ${question.number} 题 · ` : ''}

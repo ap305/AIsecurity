@@ -1,6 +1,7 @@
 import { safeReturnTo } from './authSession'
 
 export function loginWorkspaceDestination(returnTo: string | null, role: string): string {
+  if (role === 'demo') return returnTo && ['/demo', '/demo/records', '/demo/classes'].includes(returnTo) ? returnTo : '/demo'
   if (returnTo && returnTo !== '/' && safeReturnTo(returnTo) === returnTo) return returnTo
   return role === 'admin' ? '/' : '/workspace'
 }

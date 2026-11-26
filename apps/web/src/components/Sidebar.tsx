@@ -48,7 +48,7 @@ export default function Sidebar() {
   return (
     <aside className="app-sidebar">
       <nav aria-label="主要功能">
-        <div className="prd-muted sidebar-caption">{teachingSpace && canTeach ? '教学空间' : '练习空间'}</div>
+        {teachingSpace && canTeach && <div className="prd-muted sidebar-caption">教学空间</div>}
         {items(teachingSpace && canTeach ? TEACHING : MAIN)}
       </nav>
       {status === 'unavailable' && (

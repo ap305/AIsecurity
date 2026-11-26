@@ -1,3 +1,4 @@
+import { difficultyLabels, displayQuestionTitle, teachingDifficulty } from '../lib/questionPresentation'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
@@ -425,6 +426,8 @@ export default function SolveQuestion() {
         </button>
       </div>
     )
+  const title = displayQuestionTitle(question)
+  const difficulty = teachingDifficulty(question)
   const adversarial = question.category === 'adversarial'
   const definition = question.definition
   const roleReady = !adversarial || !!definition.role
@@ -502,7 +505,7 @@ export default function SolveQuestion() {
           >
             ← 题目列表
           </Link>
-          <h1 title={question.title}>{question.title}</h1>
+          <h1 title={title}>{title}</h1>
           <div className="solve-question-meta">
             <span>
               {adversarial
@@ -515,8 +518,7 @@ export default function SolveQuestion() {
             </span>
             <span>版本 {question.revision}</span>
             <span>
-              {({ L1: '入门', L2: '进阶', L3: '挑战' } as Record<string, string>)[question.difficulty] ??
-                question.difficulty}
+              {difficultyLabels[difficulty] ?? difficulty}
             </span>
           </div>
         </div>

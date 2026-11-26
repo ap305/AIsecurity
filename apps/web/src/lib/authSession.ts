@@ -1,7 +1,9 @@
 import type { User, UserRole } from '@ai-security/shared'
-import { ApiError, apiGet, apiPost, apiPut, getAuthToken, setAuthToken } from './api'
+import { ApiError, apiGet, apiPost, apiPut, getSessionToken as getAuthToken, isDemoToken, setAuthToken } from './api'
 
-export interface AuthUser extends User {
+export type LoginRole = UserRole | 'demo'
+export interface AuthUser extends Omit<User, 'role'> {
+  role: LoginRole
   school?: string
   createdAt?: string
   lastLoginAt?: string | null
@@ -128,7 +130,8 @@ export class AuthSession {
     })
   }
   private commit(user: AuthUser, token = getAuthToken()) {
-    if (!user || typeof user.id !== 'string' || !['student', 'ta', 'teacher', 'admin'].includes(user.role)) {
+    if (!user || typeof user.id !== 'string' || !['student', 'ta', 'teacher', 'admin', 'demo'].includes(user.role)
+        || (user.role === 'demo') !== isDemoToken(token)) {
       throw new Error('返回的用户信息不完整，请重试。')
     }
     if (!token || (token !== getAuthToken() && !setAuthToken(token))) {
@@ -159,7 +162,7 @@ export class AuthSession {
     }
     this.publish({ status: 'restoring', user: null })
     try {
-      const data = await apiGet<{ user: AuthUser }>('/auth/me')
+      const data = await apiGet<{ user: AuthUser }>(isDemoToken(token) ? '/demo/auth/me' : '/auth/me')
       if (this.current(version, token)) this.commit(data.user, token)
     } catch (error) {
       if (!this.current(version, token)) return
@@ -177,11 +180,15 @@ export class AuthSession {
       this.publish({ status: 'authenticated', user: { ...this.snapshot.user, mustChangePassword: true } })
     }
   }
-  login = async (username: string, password: string, role: UserRole): Promise<AuthUser> => {
-    const version = ++this.version
+  login = async (username: string, password: string, role: LoginRole): Promise<AuthUser> => {
     const token = getAuthToken()
-    const data = await apiPost<AuthResponse>('/auth/login', { username, password, role })
+    if (role === 'demo' && token && !isDemoToken(token))
+      throw new Error('当前浏览器已登录正式账号，请使用无痕窗口进行演示，或先退出当前账号。')
+    const version = ++this.version
+    const path = role === 'demo' ? '/demo/auth/login' : '/auth/login'
+    const data = await apiPost<AuthResponse>(path, { username, password, role })
     this.requireCurrent(version, token)
+    if ((role === 'demo') !== (data?.user?.role === 'demo')) throw new Error('登录身份与入口不匹配。')
     this.commitAuth(data)
     return data.user
   }
@@ -191,7 +198,7 @@ export class AuthSession {
     let revoked = !token
     try {
       if (token) {
-        const data = await apiPost<{ ok: true }>('/auth/logout', {})
+        const data = await apiPost<{ ok: true }>(isDemoToken(token) ? '/demo/auth/logout' : '/auth/logout', {})
         revoked = data?.ok === true
       }
     } catch (error) {

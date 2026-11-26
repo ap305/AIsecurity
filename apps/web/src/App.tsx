@@ -3,8 +3,10 @@ import { lazy, Suspense } from 'react'
 import Topbar from './components/Topbar'
 import Sidebar from './components/Sidebar'
 import ProtectedRoute from './components/ProtectedRoute'
+import DemoSessionNotice from './components/DemoSessionNotice'
 import ProtectedTeachingRoute, { WorkspaceLanding } from './components/ProtectedTeachingRoute'
 import { TeachingProvider } from './contexts/TeachingContext'
+import { useAuth } from './contexts/AuthContext'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import EmailVerification from './pages/EmailVerification'
@@ -35,6 +37,7 @@ import './styles/classrooms.css'
 import './styles/teachingSolutions.css'
 
 const SolveQuestion = lazy(() => import('./pages/SolveQuestion'))
+const DemoWorkspace = lazy(() => import('./pages/DemoWorkspace'))
 function SolveRoute() {
   return (
     <Suspense fallback={<div className="prd-loading">正在加载解题页面…</div>}>
@@ -91,6 +94,19 @@ function AppLayout() {
 }
 
 export default function App() {
+  const { isAuthenticated, user } = useAuth()
+  if (isAuthenticated && user?.role === 'demo')
+    return (
+      <>
+        <SiteFooter />
+        <Suspense fallback={<div className="prd-loading">正在加载演示工作台…</div>}>
+          <Routes>
+            <Route path="/demo/*" element={<DemoWorkspace />} />
+            <Route path="*" element={<Navigate to="/demo" replace />} />
+          </Routes>
+        </Suspense>
+      </>
+    )
   return (
     <TeachingProvider>
       <SiteFooter />
@@ -103,6 +119,7 @@ export default function App() {
 
         {/* All authenticated routes — with shell */}
         <Route element={<ProtectedRoute />}>
+          <Route path="/demo/*" element={<DemoSessionNotice />} />
           <Route path="/auth/change-password" element={<ChangePassword />} />
           <Route element={<AppLayout />}>
             <Route path="/" element={<QuestionHall category="basic" />} />

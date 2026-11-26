@@ -1,0 +1,204 @@
+.demo-workspace {
+  min-height: 100vh;
+  padding-bottom: var(--footer-height);
+  color: var(--text-primary);
+  background: var(--bg-primary);
+}
+.demo-top {
+  min-height: var(--topbar-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px clamp(16px, 3vw, 40px);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+.demo-top > div {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  color: var(--brand-cyan);
+}
+.demo-brand {
+  color: var(--text-primary);
+  font-size: 1.15rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+.demo-shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  min-height: calc(100vh - var(--topbar-height) - var(--footer-height));
+}
+.demo-shell aside {
+  background: var(--bg-secondary);
+  padding: 28px 12px;
+  border-right: 1px solid var(--border-color);
+}
+.demo-shell aside h2 {
+  margin: 0 12px 13px;
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+}
+.demo-shell nav {
+  display: grid;
+  gap: 4px;
+}
+.demo-shell nav a {
+  padding: 11px 13px;
+  text-decoration: none;
+  color: var(--text-secondary);
+  border-radius: 7px;
+}
+.demo-shell nav a:hover,
+.demo-shell nav a[aria-current='page'] {
+  background: var(--brand-cyan-dim);
+  color: var(--brand-cyan);
+}
+.demo-shell main {
+  width: 100%;
+  max-width: 1000px;
+  padding: clamp(18px, 4vw, 48px);
+}
+.demo-notice {
+  padding: 9px 13px;
+  margin-bottom: 27px;
+  border-left: 3px solid var(--brand-cyan);
+  background: var(--brand-cyan-dim);
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.demo-shell h1 {
+  font-size: clamp(1.65rem, 3vw, 2.15rem);
+}
+.demo-intro {
+  color: var(--text-secondary);
+  line-height: 1.7;
+  margin: 7px 0 23px;
+}
+.demo-panel {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: clamp(16px, 3vw, 27px);
+  background: var(--bg-card);
+}
+.demo-question span,
+.demo-stage > p:first-child {
+  color: var(--brand-cyan);
+  font-size: 0.9rem;
+}
+.demo-question h2 {
+  margin-top: 6px;
+  font-size: 1.35rem;
+}
+.demo-panel progress {
+  width: 100%;
+  height: 8px;
+  margin: 20px 0 15px;
+  accent-color: var(--brand-cyan);
+}
+.demo-stage h3 {
+  margin: 5px 0;
+  font-size: 1.2rem;
+}
+.demo-stage p:last-child,
+.demo-detail p,
+.demo-detail li {
+  color: var(--text-secondary);
+  line-height: 1.75;
+}
+.demo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 17px;
+  margin-top: 24px;
+}
+.demo-actions .btn-primary {
+  width: auto;
+}
+.demo-actions a,
+.demo-link {
+  color: var(--brand-cyan);
+}
+.demo-link {
+  background: transparent;
+  border: 0;
+  padding: 4px 0;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.demo-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  font-weight: 600;
+}
+.demo-picker select {
+  width: auto;
+  min-width: 145px;
+}
+.demo-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.demo-table-wrap table {
+  border-collapse: collapse;
+  width: 100%;
+  text-align: left;
+}
+.demo-table-wrap th,
+.demo-table-wrap td {
+  padding: 12px 10px;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border-color);
+}
+.demo-table-wrap thead {
+  color: var(--text-secondary);
+}
+.demo-caption {
+  text-align: left;
+  margin-bottom: 9px;
+  font-weight: 600;
+}
+.demo-detail {
+  margin-top: 20px;
+}
+.demo-detail h2 {
+  font-size: 1.1rem;
+  margin-bottom: 5px;
+}
+.demo-detail ul {
+  padding-left: 1.4em;
+}
+@media (max-width: 720px) {
+  .demo-shell {
+    display: block;
+  }
+  .demo-shell aside {
+    padding: 9px 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border-color);
+  }
+  .demo-shell aside h2 {
+    margin: 3px 8px;
+  }
+  .demo-shell nav {
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .demo-shell nav a {
+    padding: 8px;
+  }
+  .demo-top {
+    gap: 8px;
+  }
+  .demo-top > div {
+    gap: 6px;
+    font-size: 0.85rem;
+  }
+}

@@ -1,15 +1,17 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import type { UserRole } from '@ai-security/shared'
-import { passwordChangeHref } from '../lib/authSession'
+import { passwordChangeHref, type LoginRole } from '../lib/authSession'
 import { loginWorkspaceDestination } from '../lib/roleNavigation'
+import { getAuthToken } from '../lib/api'
+import DemoSessionNotice from '../components/DemoSessionNotice'
 
-type RoleTab = { role: UserRole; label: string }
+type RoleTab = { role: LoginRole; label: string }
 
 const ROLE_TABS: RoleTab[] = [
   { role: 'student', label: '师生登录' },
   { role: 'admin', label: '管理员登录' },
+  { role: 'demo', label: '演示登录' },
 ]
 
 export default function Login() {
@@ -19,7 +21,9 @@ export default function Login() {
   const requestedReturnTo = new URLSearchParams(location.search).get('returnTo')
   const logoutNotice = sessionNotice || (location.state as { logoutNotice?: string } | null)?.logoutNotice
 
-  const [activeRole, setActiveRole] = useState<RoleTab>(ROLE_TABS[0])
+  const [activeRole, setActiveRole] = useState<RoleTab>(
+    requestedReturnTo?.split('/')[1] === 'demo' ? ROLE_TABS[2] : ROLE_TABS[0],
+  )
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -48,6 +52,7 @@ export default function Login() {
     }
   }
 
+  if (activeRole.role === 'demo' && getAuthToken()) return <DemoSessionNotice />
   return (
     <main className="login-page sign-in-page">
       <section className="login-card sign-in-card" aria-labelledby="sign-in-title">
@@ -70,7 +75,7 @@ export default function Login() {
           </span>
           <div>
             <p className="sign-in-brand">AI-SEC PLATFORM</p>
-            <h1 id="sign-in-title">AI安全教学实验系统</h1>
+            <h1 id="sign-in-title">ai安全教学实验平台</h1>
           </div>
         </header>
         <div className="sign-in-roles" role="group" aria-label="登录身份">
@@ -82,6 +87,11 @@ export default function Login() {
               aria-pressed={tab.role === activeRole.role}
               onClick={() => {
                 setActiveRole(tab)
+                if ((activeRole.role === 'demo') !== (tab.role === 'demo')) {
+                  setUsername('')
+                  setPassword('')
+                  setShowRecoveryHelp(false)
+                }
                 setError('')
               }}
             >
@@ -90,6 +100,7 @@ export default function Login() {
           ))}
         </div>
         {logoutNotice && <p role="status">{logoutNotice}</p>}
+        {activeRole.role === 'demo' && <p className="sign-in-help">使用演示账号查看提交评测和班级成绩示例。</p>}
         <form onSubmit={handleSubmit} aria-busy={loading}>
           <div>
             <label htmlFor="login-username">用户名</label>
@@ -151,8 +162,10 @@ export default function Login() {
         </div>
         {showRecoveryHelp && (
           <p className="sign-in-help" id="sign-in-help" role="status">
-            请联系平台管理员，核验身份后人工恢复密码。教师授权不包含密码管理权限。手机验证和短信找回尚未开放。{' '}
-            <Link to="/password-recovery">已绑定邮箱？查看邮箱找回</Link>
+            {activeRole.role === 'demo' ? '请联系提供演示账号的管理员获取登录信息。' : <>
+              请联系平台管理员，核验身份后人工恢复密码。教师授权不包含密码管理权限。手机验证和短信找回尚未开放。{' '}
+              <Link to="/password-recovery">已绑定邮箱？查看邮箱找回</Link>
+            </>}
           </p>
         )}
       </section>

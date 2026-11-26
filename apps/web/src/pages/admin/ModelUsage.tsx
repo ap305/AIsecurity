@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ApiError } from '../../lib/api'
+import { displayQuestionTitle } from '../../lib/questionPresentation'
 import {
   modelUsageApi,
   parseUsagePolicyDraft,
@@ -136,7 +137,7 @@ export function UsageOverview({ data }: { data: ModelUsageDashboard }) {
           id: String(index),
           label: (
             <>
-              {row.title || row.questionId || '未关联题目'}
+              {row.title ? displayQuestionTitle({ title: row.title, id: row.questionId }) : row.questionId || '未关联题目'}
               {row.title && row.questionId && <div className="prd-muted">{row.questionId}</div>}
             </>
           ),

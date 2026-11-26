@@ -1,3 +1,4 @@
+import { displayQuestionTitle } from '../lib/questionPresentation'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
@@ -305,7 +306,7 @@ export default function QuestionSolutions() {
         ← 返回提交页
       </Link>
       <h1>
-        {pageScope === scopeKey && page?.question.id === questionId ? page.question.title : '题目'} · 题解
+        {pageScope === scopeKey && page?.question.id === questionId ? displayQuestionTitle(page.question) : '题目'} · 题解
       </h1>
       <p className="prd-muted">展示当前已发布版本的代码和说明，所有内容仅供阅读。模型权重不会自动公开。</p>
       <button className="prd-button" disabled={loading} onClick={refresh}>

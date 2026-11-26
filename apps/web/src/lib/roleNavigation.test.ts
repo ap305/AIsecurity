@@ -2,6 +2,13 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { loginWorkspaceDestination, workspaceRoleLabel } from './roleNavigation'
 
+test('demo login stays within its read-only workspace including after a deep link', () => {
+  for (const path of [null, '/admin', '/admin/users', '/question/A04', '/demo/unknown', '//external.invalid'])
+    assert.equal(loginWorkspaceDestination(path, 'demo'), '/demo')
+  assert.equal(loginWorkspaceDestination('/demo/records', 'demo'), '/demo/records')
+  assert.equal(loginWorkspaceDestination('/demo/classes', 'demo'), '/demo/classes')
+})
+
 test('only the default student login destination resolves the granted teaching workspace', () => {
   assert.equal(loginWorkspaceDestination(null, 'student'), '/workspace')
   assert.equal(loginWorkspaceDestination(null, 'admin'), '/')
