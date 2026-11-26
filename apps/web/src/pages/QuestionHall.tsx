@@ -6,13 +6,13 @@ import {
   filterHallQuestions,
   hallPage,
   hallScenario,
-  hallScenarios,
+  hallScene,
+  hallSceneLabels,
   questionAttemptState,
   questionKinds,
   questionModuleLabel,
   hallFilterParams,
   hallLibraryQuestions,
-  resetHallFilters,
 } from '../lib/hallFilters'
 import './QuestionHall.css'
 
@@ -52,7 +52,7 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
       .questions(category)
       .then((items) => {
         if (!cancelled) {
-          setQuestions(items.filter((q) => q.category === category))
+          setQuestions(items)
           setLoadedFor(ownerId)
         }
       })
@@ -73,38 +73,43 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
         if (value) next.set(name, value)
         else next.delete(name)
         if (name !== 'page') next.delete('page')
-        if (name === 'group') next.delete('scenario')
+        if (name === 'scene') next.delete('scenario')
         return next
       },
       { replace: true },
     )
   }
   const libraryQuestions = useMemo(
-    () => hallLibraryQuestions(questions, category, params),
-    [questions, category, params],
+    () => hallLibraryQuestions(questions, category),
+    [questions, category],
   )
+  const filterParams = useMemo(() => hallFilterParams(params, category), [params, category])
   const filtered = useMemo(
-    () => filterHallQuestions(libraryQuestions, hallFilterParams(params, category)),
-    [libraryQuestions, params, category],
+    () => filterHallQuestions(libraryQuestions, filterParams),
+    [libraryQuestions, filterParams],
   )
   const { page, pages } = hallPage(params.get('page'), filtered.length, PAGE_SIZE)
   const visible = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
   useEffect(() => {
-    const next = hallFilterParams(params, category)
-    if (next.toString() !== params.toString()) {
+    if (filterParams.toString() !== params.toString()) {
+      const next = new URLSearchParams(filterParams)
       next.delete('page')
       setParams(next, { replace: true })
     }
-  }, [params, setParams, category])
-  const scenarios = hallScenarios(libraryQuestions)
-  const groups = [...new Set(scenarios.map((s) => s.group))]
+  }, [params, setParams, filterParams])
+  const groupChoices = useMemo(() => {
+    const choices: Record<string, string> = {}
+    for (const question of libraryQuestions) {
+      const group = hallScenario(question)?.group
+      if (group) choices[group] = group
+    }
+    return choices
+  }, [libraryQuestions])
   const attempted = libraryQuestions.filter((q) => questionAttemptState(q) !== 'not_submitted').length
   const scored = libraryQuestions.filter((q) => q.myScore != null).length
-  const resetParams = resetHallFilters(params, category)
-  const hasFilters = params.toString() !== resetParams.toString()
-  const filterCount = ['q', 'difficulty', 'kind', 'state', 'group', 'scenario', 'role'].filter(
-    (name) => params.get(name) && params.get(name) !== resetParams.get(name),
-  ).length
+  const hasFilters = filterParams.size > 0
+  const filterCount = ['q', 'difficulty', 'kind', 'state', 'role', 'group']
+    .filter((name) => filterParams.get(name)).length
   const select = (name: string, label: string, choices: Record<string, string>) => (
     <label className="hall-filter">
       <span>{label}</span>
@@ -127,19 +132,10 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
     <div className="prd-page question-hall" data-filters-open={filtersOpen}>
       <header className="hall-heading">
         <div>
-          <div className="hall-eyebrow">{adversarial ? '攻防训练' : '基础练习'}</div>
-          <h1>
-            {adversarial
-              ? params.get('role') === 'attack'
-                ? '攻击题库'
-                : params.get('role') === 'defense'
-                  ? '防御题库'
-                  : '攻防题库'
-              : '基础题库'}
-          </h1>
+          <h1>{adversarial ? '对抗题库' : '基础题库'}</h1>
           <p className="prd-muted">
             {adversarial
-              ? '选择场景和固定角色，进入简报、编写代码、提交对战并复盘。'
+              ? '按场景查找题目，在题目对应的攻击或防御角色下作答。'
               : '选择一道题，在左右分栏工作台阅读题目、编写代码并查看评测结果。'}
           </p>
         </div>
@@ -159,6 +155,24 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
         </dl>
       </header>
       <div className="hall-toolbar">
+        {adversarial && (
+          <div className="hall-scenarios" role="group" aria-label="场景">
+            {Object.entries({ '': '全部场景', ...hallSceneLabels }).map(([value, label]) => {
+              const selected = (filterParams.get('scene') || '') === value
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={selected}
+                  className={selected ? 'selected' : undefined}
+                  onClick={() => updateFilter('scene', value)}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        )}
         <button
           type="button"
           className="prd-button hall-filter-toggle"
@@ -169,27 +183,8 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
           {filtersOpen ? '收起筛选' : '搜索与筛选'}
           {filterCount > 0 && `（${filterCount}）`}
         </button>
-        <nav className="hall-library-tabs" aria-label="选择题库类型">
-          {[
-            { to: '/', label: '基础题', active: !adversarial },
-            {
-              to: '/arena?role=attack',
-              label: '攻击题',
-              active: adversarial && params.get('role') === 'attack',
-            },
-            {
-              to: '/arena?role=defense',
-              label: '防御题',
-              active: adversarial && params.get('role') === 'defense',
-            },
-          ].map((item) => (
-            <Link key={item.to} to={item.to} aria-current={item.active ? 'page' : undefined}>
-              {item.label}
-            </Link>
-          ))}
-        </nav>
         <button
-          className="prd-button"
+          className="prd-button hall-refresh"
           disabled={loading}
           aria-busy={loading}
           onClick={() => setAttempt((v) => v + 1)}
@@ -198,29 +193,6 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
         </button>
       </div>
       <div id="hall-filters">
-        {adversarial && scenarios.length > 0 && (
-          <div className="hall-scenarios" aria-label="攻防场景">
-            <button
-              className={!params.get('scenario') ? 'selected' : ''}
-              aria-pressed={!params.get('scenario')}
-              onClick={() => updateFilter('scenario', '')}
-            >
-              全部场景
-            </button>
-            {scenarios
-              .filter((s) => !params.get('group') || s.group === params.get('group'))
-              .map((s) => (
-                <button
-                  key={s.id}
-                  className={params.get('scenario') === s.id ? 'selected' : ''}
-                  aria-pressed={params.get('scenario') === s.id}
-                  onClick={() => updateFilter('scenario', s.id)}
-                >
-                  {s.title}
-                </button>
-              ))}
-          </div>
-        )}
         <section className="hall-controls" aria-label="筛选题目">
           <label className="hall-search">
             <span>搜索</span>
@@ -235,12 +207,12 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
           {select('difficulty', '难度', difficulties)}
           {select('kind', '题型', questionKinds)}
           {select('state', '状态', attemptStates)}
-          {adversarial ? (
+          {adversarial && (
             <>
-              {select('group', '领域', Object.fromEntries(groups.map((g) => [g, g])))}
+              {select('group', '领域', groupChoices)}
               {select('role', '角色', { attack: '攻击', defense: '防御' })}
             </>
-          ) : null}
+          )}
         </section>
       </div>
       <div className="hall-table-heading">
@@ -259,7 +231,7 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
             </select>
           </label>
           {hasFilters && (
-            <button className="hall-text-button" onClick={() => setParams(resetParams, { replace: true })}>
+            <button className="hall-text-button" onClick={() => setParams({}, { replace: true })}>
               重置筛选
             </button>
           )}
@@ -296,6 +268,8 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
               {visible.map((q) => {
                 const state = questionAttemptState(q)
                 const scenario = hallScenario(q)
+                const scene = adversarial ? hallScene(q, scenario) : undefined
+                const role = q.role || q.definition.role
                 return (
                   <tr key={q.id}>
                     <td>
@@ -316,18 +290,17 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
                         <strong>{q.title}</strong>
                       </Link>
                       <div className="hall-question-meta">
-                        {scenario
-                          ? `${scenario.group} · ${scenario.title}`
-                          : questionModuleLabel(q.moduleCode)}
+                        {scene && `${hallSceneLabels[scene]} · `}
+                        {scenario?.group || questionModuleLabel(q.moduleCode)}
                         {q.tags?.length ? ` · ${q.tags.join(' / ')}` : ''}
                       </div>
                     </td>
                     {adversarial && (
                       <td>
-                        <span className={`hall-role hall-role-${q.definition.role}`}>
-                          {q.definition.role === 'attack'
+                        <span className={`hall-role hall-role-${role}`}>
+                          {role === 'attack'
                             ? '攻击'
-                            : q.definition.role === 'defense'
+                            : role === 'defense'
                               ? '防御'
                               : '配置未就绪'}
                         </span>
@@ -358,7 +331,7 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
                       <strong>
                         {error
                           ? '题库暂时不可用'
-                          : questions.length
+                          : libraryQuestions.length
                             ? '没有符合筛选条件的题目'
                             : adversarial
                               ? '暂未开放攻防题目'
@@ -367,25 +340,25 @@ export default function QuestionHall({ category }: { category: HallCategory }) {
                       <p>
                         {error
                           ? '请重新加载题库。'
-                          : questions.length
+                          : libraryQuestions.length
                             ? '调整筛选条件，查看其他题目。'
                             : '题目完成评测配置并发布后，会显示在这里。'}
                       </p>
                       {hasFilters && !error && (
                         <button
                           className="prd-button"
-                          onClick={() => setParams(resetParams, { replace: true })}
+                          onClick={() => setParams({}, { replace: true })}
                         >
                           清除筛选，查看题库
                         </button>
                       )}
-                      {!questions.length &&
+                      {!libraryQuestions.length &&
                         !error &&
                         (isAdmin ? (
                           <Link to="/admin/questions">前往题目管理</Link>
                         ) : (
                           <Link to={adversarial ? '/' : '/arena'}>
-                            {adversarial ? '返回任务大厅' : '前往对战大厅练习'}
+                            {adversarial ? '返回基础题库' : '前往对抗题库'}
                           </Link>
                         ))}
                     </div>

@@ -16,8 +16,8 @@ export default function Help() {
       <section className="prd-panel">
         <h2>攻防任务</h2>
         <p>
-          在<Link to="/arena?role=attack">攻击题库</Link>或<Link to="/arena?role=defense">防御题库</Link>
-          选择题目，进入后角色固定。达到基线门槛（大于等于）后，与其他用户相反角色的有效算法对抗。
+          在<Link to="/arena">对抗题库</Link>按场景查找题目。列表标明每题的攻击或防御角色。
+          达到基线门槛（大于等于）后，与其他用户相反角色的有效算法对抗。
         </p>
         <p className="prd-muted">
           成绩是成功人数占有效对手人数的百分比。零有效对手正式记 100%，正常全败可为

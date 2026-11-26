@@ -272,7 +272,12 @@ test('teacher navigation has one workspace switch, clear role badge and non-over
     ['/teaching/solutions'],
   )
   side.env.pathname = '/'
-  assert.match(words(side.render()), /基础题库攻击题库防御题库/)
+  assert.match(words(side.render()), /基础题库对抗题库/)
+  for (const pathname of ['/arena', '/arena/V3-261012-D04']) {
+    side.env.pathname = pathname
+    const current = elements(side.render()).filter((node) => node.type === Link && node.props['aria-current'] === 'page')
+    assert.deepEqual(current.map((node) => node.props.to), ['/arena'])
+  }
 })
 
 test('teaching guard hides controls on denied or unavailable access and offers a retry', (t) => {

@@ -3,11 +3,11 @@ import assert from 'node:assert/strict'
 import { defaultDefinition, type QuestionRecord } from './prdApi'
 import {
   filterHallQuestions,
-  resetHallFilters,
   hallLibraryQuestions,
   hallFilterParams,
   hallPage,
-  hallScenarios,
+  hallScene,
+  hallSceneLabels,
   questionAttemptState,
   questionLibraryType,
   questionLibraryLabel,
@@ -27,18 +27,18 @@ function question(id: string, extra: Partial<QuestionRecord> = {}): QuestionReco
   }
 }
 
-test('resetting attack and defense filters keeps the selected library and clears stale pagination', () => {
-  const reset = resetHallFilters
-  assert.equal(typeof reset, 'function', 'reset action must preserve the current library')
+test('role bookmarks narrow a combined catalog and clearing filters shows both roles', () => {
+  const rows = (['attack', 'defense'] as const).map(role =>
+    question(role, { category: 'adversarial', role, myScore: 0 }),
+  )
   for (const role of ['attack', 'defense']) {
-    const input = new URLSearchParams(`role=${role}&q=test&page=5&scenario=one&sort=score`)
-    assert.equal(reset(input, 'adversarial').toString(), `role=${role}`)
-    assert.equal(input.get('page'), '5')
+    const bookmark = hallFilterParams(new URLSearchParams({ role }), 'adversarial')
+    assert.deepEqual(filterHallQuestions(rows, bookmark).map(q => q.role), [role])
   }
-  assert.equal(reset(new URLSearchParams('role=attack&q=test'), 'basic').toString(), '')
+  assert.deepEqual(filterHallQuestions(rows, new URLSearchParams()).map(q => q.role), ['attack', 'defense'])
 })
 
-test('library progress counts the selected role while search filters do not change its total', () => {
+test('library scope includes both roles and isolates basic exercises', () => {
   const scope = hallLibraryQuestions
   assert.equal(typeof scope, 'function', 'progress must use the current library scope')
   const rows = [
@@ -46,14 +46,14 @@ test('library progress counts the selected role while search filters do not chan
     question('D', { category: 'adversarial', role: 'defense', myScore: 100 }),
     question('B', { category: 'basic' }),
   ]
-  const selected = scope(rows, 'adversarial', new URLSearchParams('role=attack&q=missing'))
+  const selected = scope(rows, 'adversarial')
   assert.deepEqual(
     selected.map((q: QuestionRecord) => q.id),
-    ['A'],
+    ['A', 'D'],
   )
   assert.equal(selected[0].myScore, 0)
   assert.deepEqual(
-    scope(rows, 'basic', new URLSearchParams('role=defense')).map((q: QuestionRecord) => q.id),
+    scope(rows, 'basic').map((q: QuestionRecord) => q.id),
     ['B'],
   )
 })
@@ -101,13 +101,14 @@ test('old scenario links and fixed roles combine with search, type and score fil
   assert.deepEqual(
     filterHallQuestions(
       rows,
-      new URLSearchParams('scenario=chatops&role=attack&kind=agent&state=scored&q=CHATOPS'),
+      hallFilterParams(new URLSearchParams('scenario=chatops&role=attack&kind=agent&state=scored&q=CHATOPS'), 'adversarial'),
     ).map((q) => q.id),
     ['CHATOPS-AD-ATK'],
   )
-  assert.equal(filterHallQuestions(rows, new URLSearchParams('scenario=unknown')).length, 0)
+  // An unrecognized old scene has no button in the new navigation.
+  assert.equal(hallFilterParams(new URLSearchParams('scenario=unknown'), 'adversarial').toString(), '')
   assert.equal(
-    filterHallQuestions(rows, new URLSearchParams('scenario=chatops&role=defense&state=scored')).length,
+    filterHallQuestions(rows, new URLSearchParams('scene=agent&role=defense&state=scored')).length,
     0,
   )
 })
@@ -128,7 +129,7 @@ test('invalid and stale page positions stay inside the filtered result range', (
   assert.deepEqual(hallPage('2', 0, 20), { page: 1, pages: 1 })
 })
 
-test('new course scenarios remain discoverable alongside legacy scenarios and filter both roles', () => {
+test('old scenario links map to the new scene while independent domain filters stay precise', () => {
   const rows = ['attack', 'defense'].map((role) =>
     question(`V3-261012-${role === 'attack' ? 'A' : 'D'}01`, {
       category: 'adversarial',
@@ -148,17 +149,51 @@ test('new course scenarios remain discoverable alongside legacy scenarios and fi
     }),
   )
   assert.deepEqual(
-    hallScenarios(rows).map((s) => [s.id, s.title, s.group]),
-    [
-      ['V3-261012-ML01', '标签翻转', '模型安全'],
-      ['chatops', 'ChatOps 运维', 'Agent 攻防'],
-    ],
+    rows.map(q => hallScene(q)),
+    ['deep-learning', 'deep-learning', 'agent'],
   )
-  assert.equal(filterHallQuestions(rows, new URLSearchParams('scenario=V3-261012-ML01')).length, 2)
+  const params = hallFilterParams(new URLSearchParams('scenario=V3-261012-ML01&group=模型安全'), 'adversarial')
+  assert.equal(params.get('scene'), 'deep-learning')
+  assert.equal(params.get('scenario'), null)
+  assert.equal(params.get('group'), '模型安全')
+  assert.equal(filterHallQuestions(rows, params).length, 2)
+  params.set('scene', 'agent')
+  assert.equal(filterHallQuestions(rows, params).length, 0)
   assert.deepEqual(
     filterHallQuestions(rows, new URLSearchParams('group=模型安全&role=defense&q=模型安全')).map((q) => q.id),
     ['V3-261012-D01'],
   )
+})
+
+test('course scene filters partition the 60 official role entries independently of title and exercise kind', () => {
+  const rows: QuestionRecord[] = []
+  for (let number = 1; number <= 31; number++) {
+    if (number === 29) continue
+    const suffix = String(number).padStart(2, '0')
+    for (const role of ['attack', 'defense'] as const) {
+      rows.push(question(`V3-261012-${role === 'attack' ? 'A' : 'D'}${suffix}`, {
+        category: 'adversarial', title: '题目', number,
+        scenarioId: `V3-261012-${[1, 4, 6, 7].includes(number) ? 'ML' : ''}${suffix}`,
+        definition: { ...defaultDefinition(), kind: 'agent', role },
+      }))
+    }
+  }
+  const counts = Object.keys(hallSceneLabels).map(scene =>
+    filterHallQuestions(rows, new URLSearchParams({ scene })).length,
+  )
+  assert.deepEqual(counts, [28, 14, 18])
+  for (const q of rows) {
+    const n = q.number!
+    const expected = n >= 14 && n <= 22 ? 'agent' : [2, 3, 8, 9, 13, 27, 28].includes(n) ? 'llm' : 'deep-learning'
+    assert.equal(hallScene(q), expected, q.id)
+  }
+  const unknown = question('custom-general', { category: 'adversarial', moduleCode: 'GENERAL' })
+  assert.equal(hallScene(unknown), undefined)
+  assert.deepEqual(filterHallQuestions([unknown], new URLSearchParams()), [unknown])
+  assert.equal(hallScene(question('V3-261012-B01')), undefined)
+  assert.equal(hallFilterParams(new URLSearchParams('scene=agent&group=模型安全'), 'basic').toString(), '')
+  assert.equal(hallFilterParams(new URLSearchParams('scene=constructor'), 'adversarial').toString(), '')
+  assert.equal(hallFilterParams(new URLSearchParams('scene=llm&scenario=V3-261012-14'), 'adversarial').get('scene'), 'llm')
 })
 
 test('retired module bookmarks cannot hide newly published basic questions', () => {

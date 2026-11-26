@@ -1,5 +1,5 @@
 import type { HallCategory, QuestionRecord } from './prdApi'
-import { resolveArenaScenario } from './arenaTeaching'
+import { ARENA_TEACHING_SCENARIOS, resolveArenaScenario } from './arenaTeaching'
 
 const moduleLabels: Record<string, string> = {
   M1: '对抗攻击与规避',
@@ -16,29 +16,59 @@ const moduleLabels: Record<string, string> = {
 }
 export const libraryTypes: Record<string, string> = { basic: '基础题', attack: '攻击题', defense: '防御题' }
 
+export const hallSceneLabels = {
+  'deep-learning': '深度学习',
+  llm: '大模型',
+  agent: '智能体',
+} as const
+type HallScene = keyof typeof hallSceneLabels
+
+// The course uses the same scenario ID for the two roles. Both the LLM and
+// the agent exercises use definition.kind="agent", so kind cannot separate them.
+const courseSceneNumbers: Record<HallScene, readonly string[]> = {
+  'deep-learning': ['01', '04', '05', '06', '07', '10', '11', '12', '23', '24', '25', '26', '30', '31'],
+  llm: ['02', '03', '08', '09', '13', '27', '28'],
+  agent: ['14', '15', '16', '17', '18', '19', '20', '21', '22'],
+}
+const deepLearningModules = new Set(['AI_SECURITY_V3', 'AI_MEDIA_V3', 'AI_PRIVACY_V3', 'AI_RECO_V3'])
+
+function sceneFromId(id: string | null | undefined): HallScene | undefined {
+  if (!id) return undefined
+  const number = /^V3-261012-(?:ML|A|D)?(\d{2})$/.exec(id)?.[1]
+  if (number) {
+    return (Object.keys(courseSceneNumbers) as HallScene[]).find((scene) => courseSceneNumbers[scene].includes(number))
+  }
+  const legacy = ARENA_TEACHING_SCENARIOS.find((scenario) => scenario.id === id)
+  if (legacy) return legacy.group === 'Agent 攻防' ? 'agent' : 'deep-learning'
+}
+export function hallScene(question: QuestionRecord, scenario = hallScenario(question)): HallScene | undefined {
+  if (question.category !== 'adversarial' && question.category !== 'security') return undefined
+  const scene = sceneFromId(scenario?.id ?? question.id)
+  if (scene) return scene
+  if (deepLearningModules.has(question.moduleCode ?? '')) return 'deep-learning'
+}
+
 export function hallFilterParams(params: URLSearchParams, category: HallCategory) {
   const next = new URLSearchParams(params)
   if (category === 'basic') {
-    for (const key of ['role', 'scenario', 'group']) next.delete(key)
-  } else if (!['attack', 'defense'].includes(next.get('role') || '')) next.delete('role')
+    next.delete('scene')
+    next.delete('role')
+    next.delete('group')
+  } else {
+    if (!['attack', 'defense'].includes(next.get('role') || '')) next.delete('role')
+    if (!next.has('scene')) {
+      const scene = sceneFromId(next.get('scenario'))
+      if (scene) next.set('scene', scene)
+    }
+    if (!Object.hasOwn(hallSceneLabels, next.get('scene') || '')) next.delete('scene')
+  }
+  next.delete('scenario')
   if (/^M[1-5]$/i.test(next.get('module') || '')) next.delete('module')
   return next
 }
 
-export function resetHallFilters(params: URLSearchParams, category: HallCategory) {
-  const next = new URLSearchParams()
-  const role = hallFilterParams(params, category).get('role')
-  if (role) next.set('role', role)
-  return next
-}
-
-export function hallLibraryQuestions(
-  questions: QuestionRecord[],
-  category: HallCategory,
-  params: URLSearchParams,
-) {
-  const role = hallFilterParams(params, category).get('role')
-  return questions.filter((q) => q.category === category && (!role || (q.role || q.definition.role) === role))
+export function hallLibraryQuestions(questions: QuestionRecord[], category: HallCategory) {
+  return questions.filter((q) => q.category === category)
 }
 export function isCurrentLibraryQuestion(question: {
   id: string
@@ -72,15 +102,6 @@ export function hallScenario(question: QuestionRecord) {
     group: question.moduleCode ? questionModuleLabel(question.moduleCode) : '其他攻防',
   }
 }
-export function hallScenarios(questions: QuestionRecord[]) {
-  const scenarios = new Map<string, NonNullable<ReturnType<typeof hallScenario>>>()
-  for (const question of questions) {
-    const scenario = hallScenario(question)
-    if (scenario && !scenarios.has(scenario.id)) scenarios.set(scenario.id, scenario)
-  }
-  return [...scenarios.values()]
-}
-
 export const questionKinds: Record<string, string> = {
   algorithm: '算法',
   model: '模型',
@@ -100,6 +121,7 @@ export function filterHallQuestions(questions: QuestionRecord[], params: URLSear
   const search = (params.get('q') || '').trim().toLocaleLowerCase()
   const selected = questions.filter((q) => {
     const scenario = hallScenario(q)
+    const scene = hallScene(q, scenario)
     return (
       (!search ||
         [
@@ -109,6 +131,7 @@ export function filterHallQuestions(questions: QuestionRecord[], params: URLSear
           q.moduleCode,
           questionModuleLabel(q.moduleCode),
           scenario?.title,
+          scene && hallSceneLabels[scene],
           ...(q.tags || []),
         ]
           .join(' ')
@@ -121,7 +144,7 @@ export function filterHallQuestions(questions: QuestionRecord[], params: URLSear
         /^M[1-5]$/i.test(params.get('module')!) ||
         q.moduleCode === params.get('module')) &&
       (!params.get('state') || questionAttemptState(q) === params.get('state')) &&
-      (!params.get('scenario') || scenario?.id === params.get('scenario')) &&
+      (!params.get('scene') || scene === params.get('scene')) &&
       (!params.get('group') || scenario?.group === params.get('group'))
     )
   })
@@ -135,8 +158,8 @@ export function filterHallQuestions(questions: QuestionRecord[], params: URLSear
     if (order === 'difficulty' && a.difficulty !== b.difficulty)
       return a.difficulty.localeCompare(b.difficulty)
     return (
-      (a.moduleCode || '').localeCompare(b.moduleCode || '') ||
       (a.number || 0) - (b.number || 0) ||
+      (a.moduleCode || '').localeCompare(b.moduleCode || '') ||
       a.id.localeCompare(b.id)
     )
   })

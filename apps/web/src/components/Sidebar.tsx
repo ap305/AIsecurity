@@ -3,8 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useTeaching } from '../contexts/TeachingContext'
 const MAIN = [
   ['/', '基础题库'],
-  ['/arena?role=attack', '攻击题库'],
-  ['/arena?role=defense', '防御题库'],
+  ['/arena', '对抗题库'],
   ['/leaderboard', '排行榜'],
   ['/classes', '我加入的班级'],
   ['/achievements', '成就'],
@@ -31,18 +30,15 @@ const ADMIN = [
 export default function Sidebar() {
   const { isAdmin } = useAuth()
   const { canTeach, status, refresh } = useTeaching()
-  const { pathname, search } = useLocation()
+  const { pathname } = useLocation()
   const teachingSpace = pathname.startsWith('/teaching')
   const items = (rows: string[][]) =>
     rows.map(([path, label]) => {
-      const role = new URLSearchParams(search).get('role')
-      const active = path.includes('?role=')
-        ? pathname.startsWith('/arena') && role === path.split('=')[1]
-        : path === '/'
-          ? pathname === '/' || pathname.startsWith('/question/')
-          : path === '/admin' || path === '/teaching'
-            ? pathname === path || (path === '/teaching' && pathname.startsWith('/teaching/classes/'))
-            : pathname.startsWith(path)
+      const active = path === '/'
+        ? pathname === '/' || pathname.startsWith('/question/')
+        : path === '/admin' || path === '/teaching'
+          ? pathname === path || (path === '/teaching' && pathname.startsWith('/teaching/classes/'))
+          : pathname === path || pathname.startsWith(path + '/')
       return (
         <Link key={path} to={path} aria-current={active ? 'page' : undefined} className="sidebar-link">
           {label}
